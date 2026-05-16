@@ -5105,16 +5105,19 @@ a.about-link:hover {
     border-radius: var(--radius-lg);
     width: 90%;
     max-width: 560px;
-    max-height: 70vh;
+    max-height: calc(100vh - var(--space-xl) - var(--space-xl));
+    max-height: min(70vh, calc(100dvh - var(--space-xl) - var(--space-xl)));
     display: flex;
     flex-direction: column;
     box-shadow: 0 8px 32px var(--shadow);
+    overflow: hidden;
 }
 
 .memory-viewer-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-shrink: 0;
     padding: var(--space-md) var(--space-md) var(--space-sm);
     border-bottom: 1px solid var(--overlay-light);
 }
@@ -5122,6 +5125,7 @@ a.about-link:hover {
 .memory-viewer-title {
     font-size: 0.92rem;
     font-weight: 600;
+    margin: 0;
 }
 
 .memory-viewer-close {
@@ -5145,7 +5149,10 @@ a.about-link:hover {
 }
 
 .memory-viewer-body {
+    flex: 1 1 auto;
+    min-height: 0;
     overflow-y: auto;
+    overscroll-behavior: contain;
     padding: var(--space-md);
 }
 
@@ -5186,6 +5193,7 @@ a.about-link:hover {
 .compiled-memory-md {
     line-height: 1.75;
     color: var(--text);
+    overflow-wrap: anywhere;
 }
 
 .compiled-memory-md h2 {
