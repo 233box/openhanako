@@ -1,4 +1,6 @@
+import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 import { describe, expect, it } from "vitest";
 import {
   buildWindowsSandboxBatchScript,
@@ -6,6 +8,9 @@ import {
   shouldBuildWindowsSandboxHelper,
   windowsSandboxHelperOutputDir,
 } from "../scripts/build-windows-sandbox-helper.mjs";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 describe("Windows sandbox helper build script", () => {
   it("only builds on win32", () => {
@@ -21,7 +26,7 @@ describe("Windows sandbox helper build script", () => {
     })).toBe(path.join("/repo", "dist-sandbox", "win-x64"));
   });
 
-  it("links the Win32 libraries required by AppContainer and ACL APIs", () => {
+  it("links the Win32 libraries required by restricted tokens and ACL APIs", () => {
     const command = buildWindowsSandboxCompileCommand({
       source: "C:\\repo\\desktop\\native\\HanaWindowsSandboxHelper\\main.cpp",
       output: "C:\\repo\\dist-sandbox\\win-x64\\hana-win-sandbox.exe",
@@ -30,6 +35,31 @@ describe("Windows sandbox helper build script", () => {
     expect(command).toContain("cl.exe");
     expect(command).toContain("userenv.lib");
     expect(command).toContain("advapi32.lib");
+  });
+
+  it("uses restricted-token APIs instead of AppContainer profile APIs", () => {
+    const source = fs.readFileSync(
+      path.resolve(__dirname, "../desktop/native/HanaWindowsSandboxHelper/main.cpp"),
+      "utf8"
+    );
+
+    expect(source).toContain("CreateRestrictedToken");
+    expect(source).toContain("WRITE_RESTRICTED");
+    expect(source).toContain("CreateProcessAsUserW");
+    expect(source).not.toContain("CreateAppContainerProfile");
+    expect(source).not.toContain("DeleteAppContainerProfile");
+  });
+
+  it("keeps a legacy AppContainer ACL diagnostic and cleanup path", () => {
+    const source = fs.readFileSync(
+      path.resolve(__dirname, "../desktop/native/HanaWindowsSandboxHelper/main.cpp"),
+      "utf8"
+    );
+
+    expect(source).toContain("--diagnose-legacy-acl");
+    expect(source).toContain("legacy-appcontainer-acl");
+    expect(source).toContain("S-1-15-2-");
+    expect(source).toContain("REVOKE_ACCESS");
   });
 
   it("writes a batch script that calls VsDevCmd.bat before cl.exe", () => {

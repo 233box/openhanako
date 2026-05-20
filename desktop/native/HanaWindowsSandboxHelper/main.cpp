@@ -10,33 +10,42 @@
 #include <aclapi.h>
 #include <sddl.h>
 
+#include <algorithm>
+#include <cstdint>
+#include <cwctype>
 #include <iostream>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
-struct Grant {
+#ifndef LUA_TOKEN
+#define LUA_TOKEN 0x00000004
+#endif
+#ifndef WRITE_RESTRICTED
+#define WRITE_RESTRICTED 0x00000008
+#endif
+
+struct WritableRoot {
     std::wstring path;
-    ACCESS_MODE mode;
-    DWORD permissions;
     bool required;
+    std::wstring sidString;
+    PSID sid = nullptr;
 };
 
 struct Options {
     std::wstring cwd;
-    bool internetClient = false;
-    bool internetClientServer = false;
-    bool privateNetworkClientServer = false;
-    std::vector<Grant> grants;
+    std::vector<WritableRoot> writableRoots;
+    std::vector<std::wstring> denyWritePaths;
+    std::vector<std::wstring> legacyAclDiagnosticPaths;
+    bool cleanupLegacyAcl = false;
     std::wstring executable;
     std::vector<std::wstring> args;
 };
 
-struct AclRestore {
-    std::wstring path;
-    PSECURITY_DESCRIPTOR descriptor = nullptr;
-    PACL oldDacl = nullptr;
-};
+static const DWORD WRITE_ALLOW_MASK =
+    FILE_GENERIC_READ | FILE_GENERIC_WRITE | FILE_GENERIC_EXECUTE | DELETE | FILE_DELETE_CHILD;
+static const DWORD WRITE_DENY_MASK =
+    FILE_WRITE_DATA | FILE_APPEND_DATA | FILE_WRITE_EA | FILE_WRITE_ATTRIBUTES | DELETE | FILE_DELETE_CHILD;
 
 static void fail(const std::wstring& message) {
     std::wcerr << L"hana-win-sandbox: " << message << std::endl;
@@ -71,6 +80,48 @@ static bool isDirectory(const std::wstring& p) {
     return attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY);
 }
 
+static std::wstring fullPathForKey(const std::wstring& raw) {
+    DWORD needed = GetFullPathNameW(raw.c_str(), 0, nullptr, nullptr);
+    if (needed == 0) return raw;
+    std::wstring out(needed, L'\0');
+    DWORD written = GetFullPathNameW(raw.c_str(), needed, out.data(), nullptr);
+    if (written == 0 || written >= needed) return raw;
+    out.resize(written);
+    std::replace(out.begin(), out.end(), L'/', L'\\');
+    std::transform(out.begin(), out.end(), out.begin(), [](wchar_t ch) {
+        return static_cast<wchar_t>(std::towupper(ch));
+    });
+    while (out.size() > 3 && (out.back() == L'\\' || out.back() == L'/')) out.pop_back();
+    return out;
+}
+
+static bool isSameOrInside(const std::wstring& childRaw, const std::wstring& rootRaw) {
+    std::wstring child = fullPathForKey(childRaw);
+    std::wstring root = fullPathForKey(rootRaw);
+    if (child == root) return true;
+    if (root.empty()) return false;
+    if (root.back() != L'\\') root.push_back(L'\\');
+    return child.size() > root.size() && child.compare(0, root.size(), root) == 0;
+}
+
+static std::wstring sidForWritableRoot(const std::wstring& root) {
+    const std::wstring key = L"hana-win32-write-root:" + fullPathForKey(root);
+    std::uint32_t hashes[4] = { 2166136261u, 2166136261u ^ 0x9e3779b9u, 2166136261u ^ 0x85ebca6bu, 2166136261u ^ 0xc2b2ae35u };
+    for (wchar_t ch : key) {
+        std::uint32_t value = static_cast<std::uint32_t>(ch);
+        for (int i = 0; i < 4; i++) {
+            hashes[i] ^= (value + static_cast<std::uint32_t>(i * 257));
+            hashes[i] *= 16777619u;
+            hashes[i] ^= (hashes[i] >> 13);
+        }
+    }
+    return L"S-1-5-21-" +
+        std::to_wstring(hashes[0] | 1u) + L"-" +
+        std::to_wstring(hashes[1] | 1u) + L"-" +
+        std::to_wstring(hashes[2] | 1u) + L"-" +
+        std::to_wstring(hashes[3] | 1u);
+}
+
 static Options parseArgs(int argc, wchar_t** argv) {
     Options opts;
     bool passthrough = false;
@@ -89,61 +140,34 @@ static Options parseArgs(int argc, wchar_t** argv) {
             opts.cwd = argv[++i];
             continue;
         }
-        if (arg == L"--network" && i + 1 < argc) {
-            std::wstring value = argv[++i];
-            if (value == L"internet-client") {
-                opts.internetClient = true;
-                continue;
-            }
-            if (value == L"internet-client-server") {
-                opts.internetClientServer = true;
-                continue;
-            }
-            if (value == L"private-network-client-server") {
-                opts.privateNetworkClientServer = true;
-                continue;
-            }
-            throw std::runtime_error("unknown network capability");
-        }
-        if ((arg == L"--grant-read" || arg == L"--grant-read-optional" ||
-             arg == L"--grant-write" || arg == L"--grant-write-optional" ||
-             arg == L"--deny-read" || arg == L"--deny-write") && i + 1 < argc) {
+        if ((arg == L"--writable-root" || arg == L"--writable-root-optional") && i + 1 < argc) {
             std::wstring target = argv[++i];
-            if (arg == L"--grant-read" || arg == L"--grant-read-optional") {
-                opts.grants.push_back({
-                    target,
-                    GRANT_ACCESS,
-                    FILE_GENERIC_READ | FILE_GENERIC_EXECUTE,
-                    arg == L"--grant-read"
-                });
-            } else if (arg == L"--grant-write" || arg == L"--grant-write-optional") {
-                opts.grants.push_back({
-                    target,
-                    GRANT_ACCESS,
-                    FILE_GENERIC_READ | FILE_GENERIC_WRITE | FILE_GENERIC_EXECUTE | DELETE | FILE_DELETE_CHILD,
-                    arg == L"--grant-write"
-                });
-            } else if (arg == L"--deny-read") {
-                opts.grants.push_back({
-                    target,
-                    DENY_ACCESS,
-                    FILE_GENERIC_READ | FILE_GENERIC_EXECUTE,
-                    true
-                });
-            } else {
-                opts.grants.push_back({
-                    target,
-                    DENY_ACCESS,
-                    FILE_WRITE_DATA | FILE_APPEND_DATA | FILE_WRITE_EA | FILE_WRITE_ATTRIBUTES | DELETE | FILE_DELETE_CHILD,
-                    true
-                });
-            }
+            opts.writableRoots.push_back({ target, arg == L"--writable-root" });
             continue;
+        }
+        if (arg == L"--deny-write" && i + 1 < argc) {
+            opts.denyWritePaths.push_back(argv[++i]);
+            continue;
+        }
+        if (arg == L"--diagnose-legacy-acl" && i + 1 < argc) {
+            opts.legacyAclDiagnosticPaths.push_back(argv[++i]);
+            continue;
+        }
+        if (arg == L"--cleanup-legacy-acl") {
+            opts.cleanupLegacyAcl = true;
+            continue;
+        }
+        if (arg == L"--network" || arg == L"--grant-read" || arg == L"--grant-read-optional" ||
+            arg == L"--grant-write" || arg == L"--grant-write-optional" || arg == L"--deny-read") {
+            throw std::runtime_error("legacy AppContainer helper argument is no longer supported");
         }
         throw std::runtime_error("unknown or incomplete argument");
     }
+
+    if (!opts.legacyAclDiagnosticPaths.empty()) return opts;
     if (opts.cwd.empty()) throw std::runtime_error("missing --cwd");
     if (opts.executable.empty()) throw std::runtime_error("missing executable after --");
+    if (opts.writableRoots.empty()) opts.writableRoots.push_back({ opts.cwd, true });
     return opts;
 }
 
@@ -183,11 +207,31 @@ static std::wstring buildCommandLine(const Options& opts) {
     return command;
 }
 
-static bool applyGrant(const Grant& grant, PSID sid, std::vector<AclRestore>& restores) {
+static bool aceMatchesSidAndMask(PACL dacl, PSID sid, BYTE aceType, DWORD mask) {
+    if (!dacl || !sid) return false;
+    for (DWORD i = 0; i < dacl->AceCount; i++) {
+        void* rawAce = nullptr;
+        if (!GetAce(dacl, i, &rawAce) || !rawAce) continue;
+        ACE_HEADER* header = reinterpret_cast<ACE_HEADER*>(rawAce);
+        if (header->AceType != aceType) continue;
+        if (aceType == ACCESS_ALLOWED_ACE_TYPE) {
+            auto* ace = reinterpret_cast<ACCESS_ALLOWED_ACE*>(rawAce);
+            PSID aceSid = reinterpret_cast<PSID>(&ace->SidStart);
+            if (EqualSid(aceSid, sid) && ((ace->Mask & mask) == mask)) return true;
+        } else if (aceType == ACCESS_DENIED_ACE_TYPE) {
+            auto* ace = reinterpret_cast<ACCESS_DENIED_ACE*>(rawAce);
+            PSID aceSid = reinterpret_cast<PSID>(&ace->SidStart);
+            if (EqualSid(aceSid, sid) && ((ace->Mask & mask) == mask)) return true;
+        }
+    }
+    return false;
+}
+
+static bool ensureAce(const std::wstring& path, PSID sid, ACCESS_MODE mode, DWORD mask, bool required) {
     PACL oldDacl = nullptr;
     PSECURITY_DESCRIPTOR descriptor = nullptr;
     DWORD rc = GetNamedSecurityInfoW(
-        const_cast<LPWSTR>(grant.path.c_str()),
+        const_cast<LPWSTR>(path.c_str()),
         SE_FILE_OBJECT,
         DACL_SECURITY_INFORMATION,
         nullptr,
@@ -197,18 +241,21 @@ static bool applyGrant(const Grant& grant, PSID sid, std::vector<AclRestore>& re
         &descriptor
     );
     if (rc != ERROR_SUCCESS) {
-        if (grant.required) {
-            fail(L"cannot read ACL for " + grant.path + L": " + win32Message(rc));
-        } else {
-            debug(L"skipping optional ACL grant for " + grant.path + L": " + win32Message(rc));
-        }
+        if (required) fail(L"cannot read ACL for " + path + L": " + win32Message(rc));
+        else debug(L"skipping optional ACL update for " + path + L": " + win32Message(rc));
         return false;
     }
 
+    BYTE aceType = mode == DENY_ACCESS ? ACCESS_DENIED_ACE_TYPE : ACCESS_ALLOWED_ACE_TYPE;
+    if (aceMatchesSidAndMask(oldDacl, sid, aceType, mask)) {
+        if (descriptor) LocalFree(descriptor);
+        return true;
+    }
+
     EXPLICIT_ACCESSW access = {};
-    access.grfAccessPermissions = grant.permissions;
-    access.grfAccessMode = grant.mode;
-    access.grfInheritance = isDirectory(grant.path) ? (OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE) : NO_INHERITANCE;
+    access.grfAccessPermissions = mask;
+    access.grfAccessMode = mode;
+    access.grfInheritance = isDirectory(path) ? (OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE) : NO_INHERITANCE;
     access.Trustee.TrusteeForm = TRUSTEE_IS_SID;
     access.Trustee.TrusteeType = TRUSTEE_IS_UNKNOWN;
     access.Trustee.ptstrName = reinterpret_cast<LPWSTR>(sid);
@@ -216,17 +263,14 @@ static bool applyGrant(const Grant& grant, PSID sid, std::vector<AclRestore>& re
     PACL newDacl = nullptr;
     rc = SetEntriesInAclW(1, &access, oldDacl, &newDacl);
     if (rc != ERROR_SUCCESS) {
-        if (grant.required) {
-            fail(L"cannot build ACL for " + grant.path + L": " + win32Message(rc));
-        } else {
-            debug(L"skipping optional ACL grant for " + grant.path + L": " + win32Message(rc));
-        }
+        if (required) fail(L"cannot build ACL for " + path + L": " + win32Message(rc));
+        else debug(L"skipping optional ACL update for " + path + L": " + win32Message(rc));
         if (descriptor) LocalFree(descriptor);
         return false;
     }
 
     rc = SetNamedSecurityInfoW(
-        const_cast<LPWSTR>(grant.path.c_str()),
+        const_cast<LPWSTR>(path.c_str()),
         SE_FILE_OBJECT,
         DACL_SECURITY_INFORMATION,
         nullptr,
@@ -235,81 +279,126 @@ static bool applyGrant(const Grant& grant, PSID sid, std::vector<AclRestore>& re
         nullptr
     );
     if (newDacl) LocalFree(newDacl);
+    if (descriptor) LocalFree(descriptor);
     if (rc != ERROR_SUCCESS) {
-        if (grant.required) {
-            fail(L"cannot apply ACL for " + grant.path + L": " + win32Message(rc));
-        } else {
-            debug(L"skipping optional ACL grant for " + grant.path + L": " + win32Message(rc));
-        }
-        if (descriptor) LocalFree(descriptor);
+        if (required) fail(L"cannot apply ACL for " + path + L": " + win32Message(rc));
+        else debug(L"skipping optional ACL update for " + path + L": " + win32Message(rc));
         return false;
     }
-
-    restores.push_back({ grant.path, descriptor, oldDacl });
     return true;
 }
 
-static void restoreAcls(std::vector<AclRestore>& restores) {
-    for (auto it = restores.rbegin(); it != restores.rend(); ++it) {
-        DWORD rc = SetNamedSecurityInfoW(
-            const_cast<LPWSTR>(it->path.c_str()),
-            SE_FILE_OBJECT,
-            DACL_SECURITY_INFORMATION,
-            nullptr,
-            nullptr,
-            it->oldDacl,
-            nullptr
-        );
-        if (rc != ERROR_SUCCESS) {
-            fail(L"cannot restore ACL for " + it->path + L": " + win32Message(rc));
+static bool convertRootSids(std::vector<WritableRoot>& roots) {
+    for (auto& root : roots) {
+        root.sidString = sidForWritableRoot(root.path);
+        if (!ConvertStringSidToSidW(root.sidString.c_str(), &root.sid)) {
+            fail(L"cannot create restricted SID for " + root.path + L": " + win32Message(GetLastError()));
+            return false;
         }
-        if (it->descriptor) LocalFree(it->descriptor);
-        it->descriptor = nullptr;
-        it->oldDacl = nullptr;
+    }
+    return true;
+}
+
+static void freeRootSids(std::vector<WritableRoot>& roots) {
+    for (auto& root : roots) {
+        if (root.sid) LocalFree(root.sid);
+        root.sid = nullptr;
     }
 }
 
-static bool createProfile(const std::wstring& moniker, PSID* appSid) {
-    HRESULT hr = CreateAppContainerProfile(
-        moniker.c_str(),
-        L"Hana Command Sandbox",
-        L"Per-run Hana command sandbox",
+static bool applyWriteAcls(std::vector<WritableRoot>& roots, const std::vector<std::wstring>& denyWritePaths) {
+    for (const auto& root : roots) {
+        if (!ensureAce(root.path, root.sid, GRANT_ACCESS, WRITE_ALLOW_MASK, root.required) && root.required) {
+            return false;
+        }
+    }
+
+    for (const auto& denyPath : denyWritePaths) {
+        bool matched = false;
+        for (const auto& root : roots) {
+            if (!root.sid || !isSameOrInside(denyPath, root.path)) continue;
+            matched = true;
+            if (!ensureAce(denyPath, root.sid, DENY_ACCESS, WRITE_DENY_MASK, true)) return false;
+        }
+        if (!matched) {
+            debug(L"deny-write path is outside writable roots: " + denyPath);
+        }
+    }
+    return true;
+}
+
+static HANDLE createRestrictedWriteToken(const std::vector<WritableRoot>& roots) {
+    std::vector<SID_AND_ATTRIBUTES> restrictingSids;
+    for (const auto& root : roots) {
+        if (!root.sid) continue;
+        SID_AND_ATTRIBUTES attr = {};
+        attr.Sid = root.sid;
+        attr.Attributes = 0;
+        restrictingSids.push_back(attr);
+    }
+    if (restrictingSids.empty()) {
+        fail(L"no writable root SIDs available for restricted token");
+        return nullptr;
+    }
+
+    HANDLE baseToken = nullptr;
+    DWORD desired = TOKEN_DUPLICATE | TOKEN_ASSIGN_PRIMARY | TOKEN_QUERY |
+        TOKEN_ADJUST_DEFAULT | TOKEN_ADJUST_SESSIONID;
+    if (!OpenProcessToken(GetCurrentProcess(), desired, &baseToken)) {
+        fail(L"OpenProcessToken failed: " + win32Message(GetLastError()));
+        return nullptr;
+    }
+
+    HANDLE restrictedToken = nullptr;
+    DWORD flags = DISABLE_MAX_PRIVILEGE | LUA_TOKEN | WRITE_RESTRICTED;
+    BOOL ok = CreateRestrictedToken(
+        baseToken,
+        flags,
+        0,
         nullptr,
         0,
-        appSid
+        nullptr,
+        static_cast<DWORD>(restrictingSids.size()),
+        restrictingSids.data(),
+        &restrictedToken
     );
-    if (SUCCEEDED(hr)) return true;
-    if (HRESULT_CODE(hr) == ERROR_ALREADY_EXISTS) {
-        hr = DeriveAppContainerSidFromAppContainerName(moniker.c_str(), appSid);
-        return SUCCEEDED(hr);
+    CloseHandle(baseToken);
+    if (!ok) {
+        fail(L"CreateRestrictedToken failed: " + win32Message(GetLastError()));
+        return nullptr;
     }
-    fail(L"cannot create AppContainer profile: HRESULT " + std::to_wstring(static_cast<unsigned long>(hr)));
-    return false;
-}
 
-static bool addCapabilitySid(
-    const wchar_t* sidString,
-    std::vector<PSID>& ownedSids,
-    std::vector<SID_AND_ATTRIBUTES>& capabilities
-) {
-    PSID sid = nullptr;
-    if (!ConvertStringSidToSidW(sidString, &sid)) {
-        fail(L"cannot create capability SID: " + win32Message(GetLastError()));
-        return false;
+    std::vector<EXPLICIT_ACCESSW> defaultEntries;
+    for (const auto& root : roots) {
+        if (!root.sid) continue;
+        EXPLICIT_ACCESSW access = {};
+        access.grfAccessPermissions = GENERIC_ALL;
+        access.grfAccessMode = GRANT_ACCESS;
+        access.grfInheritance = NO_INHERITANCE;
+        access.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+        access.Trustee.TrusteeType = TRUSTEE_IS_UNKNOWN;
+        access.Trustee.ptstrName = reinterpret_cast<LPWSTR>(root.sid);
+        defaultEntries.push_back(access);
     }
-    ownedSids.push_back(sid);
-    SID_AND_ATTRIBUTES attr = {};
-    attr.Sid = sid;
-    attr.Attributes = SE_GROUP_ENABLED;
-    capabilities.push_back(attr);
-    return true;
-}
+    PACL defaultDacl = nullptr;
+    DWORD rc = SetEntriesInAclW(
+        static_cast<ULONG>(defaultEntries.size()),
+        defaultEntries.data(),
+        nullptr,
+        &defaultDacl
+    );
+    if (rc == ERROR_SUCCESS && defaultDacl) {
+        TOKEN_DEFAULT_DACL info = {};
+        info.DefaultDacl = defaultDacl;
+        if (!SetTokenInformation(restrictedToken, TokenDefaultDacl, &info, sizeof(info))) {
+            debug(L"SetTokenInformation(TokenDefaultDacl) failed: " + win32Message(GetLastError()));
+        }
+        LocalFree(defaultDacl);
+    } else {
+        debug(L"SetEntriesInAclW(TokenDefaultDacl) failed: " + win32Message(rc));
+    }
 
-static void freeOwnedSids(std::vector<PSID>& sids) {
-    for (PSID sid : sids) {
-        if (sid) LocalFree(sid);
-    }
-    sids.clear();
+    return restrictedToken;
 }
 
 static HANDLE createKillOnCloseJob() {
@@ -324,74 +413,19 @@ static HANDLE createKillOnCloseJob() {
     return job;
 }
 
-static int runSandboxed(const Options& opts, PSID appSid) {
-    std::vector<PSID> capabilitySids;
-    std::vector<SID_AND_ATTRIBUTES> capabilityAttrs;
-    if (opts.internetClient) {
-        // Well-known AppContainer capability SID for internetClient.
-        if (!addCapabilitySid(L"S-1-15-3-1", capabilitySids, capabilityAttrs)) {
-            freeOwnedSids(capabilitySids);
-            return 1;
-        }
-    }
-    if (opts.internetClientServer) {
-        // Well-known AppContainer capability SID for internetClientServer.
-        if (!addCapabilitySid(L"S-1-15-3-2", capabilitySids, capabilityAttrs)) {
-            freeOwnedSids(capabilitySids);
-            return 1;
-        }
-    }
-    if (opts.privateNetworkClientServer) {
-        // Well-known AppContainer capability SID for privateNetworkClientServer.
-        if (!addCapabilitySid(L"S-1-15-3-3", capabilitySids, capabilityAttrs)) {
-            freeOwnedSids(capabilitySids);
-            return 1;
-        }
-    }
-
-    SECURITY_CAPABILITIES capabilities = {};
-    capabilities.AppContainerSid = appSid;
-    capabilities.Capabilities = capabilityAttrs.empty() ? nullptr : capabilityAttrs.data();
-    capabilities.CapabilityCount = static_cast<DWORD>(capabilityAttrs.size());
-    capabilities.Reserved = 0;
-
-    SIZE_T attrSize = 0;
-    InitializeProcThreadAttributeList(nullptr, 1, 0, &attrSize);
-    std::vector<unsigned char> attrBuffer(attrSize);
-
-    STARTUPINFOEXW startup = {};
-    startup.StartupInfo.cb = sizeof(startup);
-    startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
-    startup.StartupInfo.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
-    startup.StartupInfo.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
-    startup.StartupInfo.hStdError = GetStdHandle(STD_ERROR_HANDLE);
-    startup.lpAttributeList = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(attrBuffer.data());
-
-    if (!InitializeProcThreadAttributeList(startup.lpAttributeList, 1, 0, &attrSize)) {
-        fail(L"InitializeProcThreadAttributeList failed: " + win32Message(GetLastError()));
-        freeOwnedSids(capabilitySids);
-        return 1;
-    }
-
-    if (!UpdateProcThreadAttribute(
-        startup.lpAttributeList,
-        0,
-        PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES,
-        &capabilities,
-        sizeof(capabilities),
-        nullptr,
-        nullptr
-    )) {
-        fail(L"UpdateProcThreadAttribute failed: " + win32Message(GetLastError()));
-        DeleteProcThreadAttributeList(startup.lpAttributeList);
-        freeOwnedSids(capabilitySids);
-        return 1;
-    }
+static int runSandboxed(const Options& opts, HANDLE restrictedToken) {
+    STARTUPINFOW startup = {};
+    startup.cb = sizeof(startup);
+    startup.dwFlags = STARTF_USESTDHANDLES;
+    startup.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    startup.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+    startup.hStdError = GetStdHandle(STD_ERROR_HANDLE);
 
     std::wstring commandLine = buildCommandLine(opts);
     PROCESS_INFORMATION process = {};
-    DWORD flags = EXTENDED_STARTUPINFO_PRESENT | CREATE_SUSPENDED | CREATE_NO_WINDOW;
-    BOOL ok = CreateProcessW(
+    DWORD flags = CREATE_SUSPENDED | CREATE_NO_WINDOW;
+    BOOL ok = CreateProcessAsUserW(
+        restrictedToken,
         opts.executable.c_str(),
         commandLine.data(),
         nullptr,
@@ -400,15 +434,12 @@ static int runSandboxed(const Options& opts, PSID appSid) {
         flags,
         nullptr,
         opts.cwd.c_str(),
-        &startup.StartupInfo,
+        &startup,
         &process
     );
 
-    DeleteProcThreadAttributeList(startup.lpAttributeList);
-
     if (!ok) {
-        fail(L"CreateProcessW failed: " + win32Message(GetLastError()));
-        freeOwnedSids(capabilitySids);
+        fail(L"CreateProcessAsUserW failed: " + win32Message(GetLastError()));
         return 1;
     }
 
@@ -418,7 +449,6 @@ static int runSandboxed(const Options& opts, PSID appSid) {
         TerminateProcess(process.hProcess, 1);
         CloseHandle(process.hThread);
         CloseHandle(process.hProcess);
-        freeOwnedSids(capabilitySids);
         return 1;
     }
     if (!AssignProcessToJobObject(job, process.hProcess)) {
@@ -427,7 +457,6 @@ static int runSandboxed(const Options& opts, PSID appSid) {
         CloseHandle(job);
         CloseHandle(process.hThread);
         CloseHandle(process.hProcess);
-        freeOwnedSids(capabilitySids);
         return 1;
     }
 
@@ -439,8 +468,124 @@ static int runSandboxed(const Options& opts, PSID appSid) {
     CloseHandle(process.hThread);
     CloseHandle(process.hProcess);
     CloseHandle(job);
-    freeOwnedSids(capabilitySids);
     return static_cast<int>(exitCode);
+}
+
+static bool stringStartsWith(const std::wstring& value, const std::wstring& prefix) {
+    return value.size() >= prefix.size() && value.compare(0, prefix.size(), prefix) == 0;
+}
+
+static bool isLegacyAppContainerSid(PSID sid, std::wstring* sidStringOut = nullptr) {
+    LPWSTR sidText = nullptr;
+    if (!ConvertSidToStringSidW(sid, &sidText)) return false;
+    std::wstring sidString = sidText;
+    LocalFree(sidText);
+    bool legacy = stringStartsWith(sidString, L"S-1-15-2-");
+    if (legacy && sidStringOut) *sidStringOut = sidString;
+    return legacy;
+}
+
+static bool revokeSidsFromPath(const std::wstring& path, const std::vector<PSID>& sids, PACL oldDacl) {
+    if (sids.empty()) return true;
+    std::vector<EXPLICIT_ACCESSW> entries;
+    for (PSID sid : sids) {
+        EXPLICIT_ACCESSW access = {};
+        access.grfAccessMode = REVOKE_ACCESS;
+        access.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+        access.Trustee.TrusteeType = TRUSTEE_IS_UNKNOWN;
+        access.Trustee.ptstrName = reinterpret_cast<LPWSTR>(sid);
+        entries.push_back(access);
+    }
+    PACL newDacl = nullptr;
+    DWORD rc = SetEntriesInAclW(static_cast<ULONG>(entries.size()), entries.data(), oldDacl, &newDacl);
+    if (rc != ERROR_SUCCESS) {
+        fail(L"cannot build legacy ACL cleanup for " + path + L": " + win32Message(rc));
+        return false;
+    }
+    rc = SetNamedSecurityInfoW(
+        const_cast<LPWSTR>(path.c_str()),
+        SE_FILE_OBJECT,
+        DACL_SECURITY_INFORMATION,
+        nullptr,
+        nullptr,
+        newDacl,
+        nullptr
+    );
+    if (newDacl) LocalFree(newDacl);
+    if (rc != ERROR_SUCCESS) {
+        fail(L"cannot clean legacy ACL for " + path + L": " + win32Message(rc));
+        return false;
+    }
+    return true;
+}
+
+static int diagnoseLegacyAcls(const Options& opts) {
+    int findings = 0;
+    for (const auto& path : opts.legacyAclDiagnosticPaths) {
+        PACL dacl = nullptr;
+        PSECURITY_DESCRIPTOR descriptor = nullptr;
+        DWORD rc = GetNamedSecurityInfoW(
+            const_cast<LPWSTR>(path.c_str()),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            nullptr,
+            nullptr,
+            &dacl,
+            nullptr,
+            &descriptor
+        );
+        if (rc != ERROR_SUCCESS) {
+            fail(L"legacy-acl-diagnostic path=\"" + path + L"\" error=\"" + win32Message(rc) + L"\"");
+            continue;
+        }
+
+        std::vector<PSID> legacySids;
+        if (dacl) {
+            for (DWORD i = 0; i < dacl->AceCount; i++) {
+                void* rawAce = nullptr;
+                if (!GetAce(dacl, i, &rawAce) || !rawAce) continue;
+                ACE_HEADER* header = reinterpret_cast<ACE_HEADER*>(rawAce);
+                if (header->AceType != ACCESS_ALLOWED_ACE_TYPE && header->AceType != ACCESS_DENIED_ACE_TYPE) continue;
+
+                DWORD mask = 0;
+                PSID sid = nullptr;
+                std::wstring aceKind = L"unknown";
+                if (header->AceType == ACCESS_ALLOWED_ACE_TYPE) {
+                    auto* ace = reinterpret_cast<ACCESS_ALLOWED_ACE*>(rawAce);
+                    mask = ace->Mask;
+                    sid = reinterpret_cast<PSID>(&ace->SidStart);
+                    aceKind = L"allow";
+                } else {
+                    auto* ace = reinterpret_cast<ACCESS_DENIED_ACE*>(rawAce);
+                    mask = ace->Mask;
+                    sid = reinterpret_cast<PSID>(&ace->SidStart);
+                    aceKind = L"deny";
+                }
+
+                std::wstring sidString;
+                if (!isLegacyAppContainerSid(sid, &sidString)) continue;
+                findings++;
+                std::wcerr
+                    << L"hana-win-sandbox: legacy-appcontainer-acl"
+                    << L" path=\"" << path << L"\""
+                    << L" sid=\"" << sidString << L"\""
+                    << L" ace=\"" << aceKind << L"\""
+                    << L" mask=\"" << mask << L"\""
+                    << std::endl;
+                if (opts.cleanupLegacyAcl && std::none_of(legacySids.begin(), legacySids.end(), [sid](PSID existing) {
+                    return EqualSid(existing, sid);
+                })) {
+                    legacySids.push_back(sid);
+                }
+            }
+        }
+
+        if (opts.cleanupLegacyAcl) {
+            revokeSidsFromPath(path, legacySids, dacl);
+        }
+        if (descriptor) LocalFree(descriptor);
+    }
+    return findings > 0 ? 3 : 0;
 }
 
 int wmain(int argc, wchar_t** argv) {
@@ -452,34 +597,26 @@ int wmain(int argc, wchar_t** argv) {
         return 2;
     }
 
-    std::wstring moniker = L"com.hanako.sandbox." +
-        std::to_wstring(GetCurrentProcessId()) + L"." +
-        std::to_wstring(GetTickCount64());
+    if (!opts.legacyAclDiagnosticPaths.empty()) {
+        return diagnoseLegacyAcls(opts);
+    }
 
-    PSID appSid = nullptr;
-    std::vector<AclRestore> restores;
     int exitCode = 1;
-
-    if (!createProfile(moniker, &appSid)) {
+    if (!convertRootSids(opts.writableRoots)) {
+        freeRootSids(opts.writableRoots);
+        return 1;
+    }
+    if (!applyWriteAcls(opts.writableRoots, opts.denyWritePaths)) {
+        freeRootSids(opts.writableRoots);
         return 1;
     }
 
-    bool grantsOk = true;
-    for (const auto& grant : opts.grants) {
-        if (!applyGrant(grant, appSid, restores)) {
-            if (grant.required) {
-                grantsOk = false;
-                break;
-            }
-        }
+    HANDLE token = createRestrictedWriteToken(opts.writableRoots);
+    if (token) {
+        exitCode = runSandboxed(opts, token);
+        CloseHandle(token);
     }
 
-    if (grantsOk) {
-        exitCode = runSandboxed(opts, appSid);
-    }
-
-    restoreAcls(restores);
-    if (appSid) FreeSid(appSid);
-    DeleteAppContainerProfile(moniker.c_str());
-    return grantsOk ? exitCode : 1;
+    freeRootSids(opts.writableRoots);
+    return exitCode;
 }
