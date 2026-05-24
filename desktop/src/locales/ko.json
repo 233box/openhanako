@@ -1191,7 +1191,7 @@
       "homeFolderBrowse": "찾아보기"
     },
     "toolCaps": {
-      "title": "자기 학습 스킬"
+      "title": "스킬 설치 권한"
     },
     "skills": {
       "title": "스킬",
@@ -1200,8 +1200,6 @@
       "agentConfigTitle": "Agent Skill Configuration",
       "configureFor": "Configuring:",
       "userSkillsTitle": "Agent Skill Toggles",
-      "learnedSkillsTitle": "Learned Skills",
-      "learnedEmpty": "This agent hasn't learned any skills yet",
       "user": "사용자 스킬",
       "system": "시스템 스킬",
       "add": "스킬 추가",
@@ -1212,8 +1210,6 @@
       "enabled": "활성화됨",
       "disabled": "비활성화됨",
       "noSkills": "사용 가능한 스킬이 없어요",
-      "learned": "에이전트가 배운 것",
-      "noLearned": "에이전트가 아직 배운 스킬이 없어요",
       "noUser": "사용자 정의 스킬 없음",
       "copyToSkills": "내 스킬로 복사",
       "copied": "복사됨 ✓",
@@ -1230,7 +1226,7 @@
       "compatAutoDiscovered": "자동 발견됨",
       "compatNotInstalled": "미설치",
       "learnCreate": "스킬 생성 / 설치",
-      "learnCreateDesc": "에이전트가 새 스킬을 작성하거나 도구 호출로 설치하는 것을 허용해요",
+      "learnCreateDesc": "에이전트가 새 스킬을 작성하거나 공유 스킬 풀에 설치하는 것을 허용해요. 기본적으로 현재 Agent에만 활성화돼요",
       "fetchRemote": "GitHub / ClawHub에서 스킬 가져오기",
       "fetchRemoteDesc": "활성화하면 에이전트가 전문 작업 수행 시 적합한 스킬을 검색하고 설치해요. 주의해서 사용하세요",
       "safetyReview": "설치 전 안전 검토",
@@ -1905,7 +1901,7 @@
     "subagentStopReason": "서브 에이전트가 정상적으로 완료되지 않았어요 (stopReason: {reason}).",
     "subagentToolFailed": "서브 에이전트 도구 실행 실패: {msg}",
     "subagentDispatched": "서브 작업을 보냈어요 (task-id: {taskId}). 완료되면 결과가 자동으로 전달돼요.",
-    "installSkillDisabled": "자가 학습 스킬 기능이 활성화되지 않았어요. 설정에서 「Agent의 스킬 생성/설치 허용」을 켜주세요.",
+    "installSkillDisabled": "스킬 설치 기능이 활성화되지 않았어요. 설정에서 「Agent의 스킬 생성/설치 허용」을 켜주세요.",
     "installSkillGithubDisabled": "GitHub 스킬 가져오기가 활성화되지 않았어요. 설정에서 「GitHub에서 스킬 가져오기 허용」을 켜주세요.",
     "installSkillInvalidGithubUrl": "잘못된 GitHub URL: {url}",
     "installSkillGithubApiFailed": "리포지토리 정보를 가져올 수 없어요 (HTTP {status}). URL을 확인해 주세요.",
@@ -2187,12 +2183,11 @@
     },
     "installSkill": {
       "label": "스킬 설치",
-      "description": "자신에게 새로운 스킬을 설치해요. 모드 A: GitHub 저장소 URL (SKILL.md 포함)을 제공해서 자동으로 가져오고 설치해요. 모드 B: skill_content + skill_name을 직접 제공, 직접 작성한 스킬용이에요. 설치 후 즉시 적용돼요.",
+      "description": "새 스킬을 공유 스킬 풀에 설치하고 기본적으로 현재 Agent에만 활성화해요. 모드 A: GitHub 저장소 URL (SKILL.md 포함)을 제공해서 자동으로 가져오고 설치해요. 모드 B: skill_content + skill_name을 직접 제공, 직접 작성한 스킬용이에요.",
       "githubUrlDesc": "GitHub 저장소 URL (모드 A)",
       "skillContentDesc": "SKILL.md의 전체 내용 (모드 B)",
       "skillNameDesc": "스킬 이름 (모드 B에 필수)",
-      "reasonDesc": "이 스킬이 필요한 이유 설명 (감사용, 필수)",
-      "userRequestedDesc": "사용자가 명시적으로 설치를 요청했는지 여부 (true = 사용자 스킬, false = 학습 스킬)"
+      "reasonDesc": "이 스킬이 필요한 이유 설명 (감사용, 필수)"
     },
     "updateSettings": {
       "label": "설정",

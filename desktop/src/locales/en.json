@@ -1191,7 +1191,7 @@
       "homeFolderBrowse": "Browse"
     },
     "toolCaps": {
-      "title": "Self-learning Skills"
+      "title": "Skill Installation Permissions"
     },
     "skills": {
       "title": "Skills",
@@ -1200,8 +1200,6 @@
       "agentConfigTitle": "Agent Skill Configuration",
       "configureFor": "Configuring:",
       "userSkillsTitle": "Agent Skill Toggles",
-      "learnedSkillsTitle": "Learned Skills",
-      "learnedEmpty": "This agent hasn't learned any skills yet",
       "user": "User Skills",
       "system": "System Skills",
       "add": "Add Skill",
@@ -1212,8 +1210,6 @@
       "enabled": "Enabled",
       "disabled": "Disabled",
       "noSkills": "No skills available",
-      "learned": "Agent Learned",
-      "noLearned": "Agent has not learned any skills yet",
       "noUser": "No custom skills",
       "copyToSkills": "Copy to your skills",
       "copied": "Copied ✓",
@@ -1230,7 +1226,7 @@
       "compatAutoDiscovered": "Auto-discovered",
       "compatNotInstalled": "Not installed",
       "learnCreate": "Create / install skills",
-      "learnCreateDesc": "Allow the Agent to write new skills or install them via tool calls",
+      "learnCreateDesc": "Allow the Agent to write new skills or install them into the shared skill pool, enabled only for the current Agent by default",
       "fetchRemote": "Fetch skills from GitHub / ClawHub",
       "fetchRemoteDesc": "When enabled, the Agent will proactively search and install suitable skills for specialized tasks. Use with caution",
       "safetyReview": "Safety review before install",
@@ -1905,7 +1901,7 @@
     "subagentStopReason": "Sub-agent did not finish cleanly (stopReason: {reason}).",
     "subagentToolFailed": "Sub-agent tool failed: {msg}",
     "subagentDispatched": "Sub-task dispatched (task-id: {taskId}). Results will be delivered when ready.",
-    "installSkillDisabled": "Self-learning skills not enabled. Please enable \"Allow Agent to create/install skills\" in settings.",
+    "installSkillDisabled": "Skill installation is not enabled. Please enable \"Allow Agent to create/install skills\" in settings.",
     "installSkillGithubDisabled": "GitHub skill fetching not enabled. Please enable \"Allow fetching skills from GitHub\" in settings.",
     "installSkillInvalidGithubUrl": "Invalid GitHub URL: {url}",
     "installSkillGithubApiFailed": "Cannot retrieve repo info (HTTP {status}). Please check the URL.",
@@ -2187,12 +2183,11 @@
     },
     "installSkill": {
       "label": "Install Skill",
-      "description": "Install a new skill for yourself. Mode A: Provide a GitHub repo URL (containing SKILL.md) to auto-fetch and install. Mode B: Directly provide skill_content + skill_name, for self-authored skills. The skill takes effect immediately after installation.",
+      "description": "Install a new skill into the shared skill pool, enabled only for the current Agent by default. Mode A: Provide a GitHub repo URL (containing SKILL.md) to auto-fetch and install. Mode B: Directly provide skill_content + skill_name, for self-authored skills.",
       "githubUrlDesc": "GitHub repo URL (Mode A)",
       "skillContentDesc": "Full content of SKILL.md (Mode B)",
       "skillNameDesc": "Skill name (required for Mode B)",
-      "reasonDesc": "Explain why this skill is needed (for audit, required)",
-      "userRequestedDesc": "Whether the user explicitly requested installation (true = user skill, false = learned skill)"
+      "reasonDesc": "Explain why this skill is needed (for audit, required)"
     },
     "updateSettings": {
       "label": "Settings",

@@ -906,7 +906,6 @@ export class HanaEngine {
   _getSkillsForAgent(ag) { return this._skills.getSkillsForAgent(ag); }
   get skillsDir() { return this._skills?.skillsDir; }
   get userSkillsDir() { return this._skills?.skillsDir; }
-  get learnedSkillsDir() { return path.join(this.agent.agentDir, "learned-skills"); }
   get modelsJsonPath() { return this._models.modelsJsonPath; }
   get authJsonPath() { return this._models.authJsonPath; }
 
@@ -1002,7 +1001,7 @@ export class HanaEngine {
 
     this._skills.setExternalPaths(resolved);
     if (reload) await this.reloadSkills();
-    if (emitEvent) this._emitEvent({ type: "skills-changed" }, null);
+    if (emitEvent) this._emitAppEvent("skills-changed", { agentId: null });
     return true;
   }
 
@@ -1240,6 +1239,7 @@ export class HanaEngine {
       this._resourceLoader.getSystemPrompt = () => this.agent.systemPrompt;
       this._resourceLoader.getSkills = () => this._getSkillsForAgent(this.agent);
       this._syncAllAgentSkills();
+      this._emitAppEvent("skills-changed", { agentId: null });
     });
 
     // 7. Bridge 孤儿清理
@@ -1628,6 +1628,21 @@ export class HanaEngine {
   }
 
   emitEvent(event, sessionPath) { this._emitEvent(event, sessionPath); }
+
+  _emitAppEvent(type, payload = {}) {
+    if (typeof type !== "string" || !type) return;
+    const normalizedPayload = payload && typeof payload === "object" && !Array.isArray(payload)
+      ? payload
+      : {};
+    this._emitEvent({
+      type: "app_event",
+      event: {
+        type,
+        payload: normalizedPayload,
+        source: "server",
+      },
+    }, null);
+  }
 
   emitDevLog(text, level = "info") {
     const entry = { text, level, ts: Date.now() };

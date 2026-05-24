@@ -1191,7 +1191,7 @@
       "homeFolderBrowse": "参照"
     },
     "toolCaps": {
-      "title": "自律学習スキル"
+      "title": "スキルインストール権限"
     },
     "skills": {
       "title": "スキル",
@@ -1200,8 +1200,6 @@
       "agentConfigTitle": "Agent Skill Configuration",
       "configureFor": "Configuring:",
       "userSkillsTitle": "Agent Skill Toggles",
-      "learnedSkillsTitle": "Learned Skills",
-      "learnedEmpty": "This agent hasn't learned any skills yet",
       "user": "ユーザースキル",
       "system": "システムスキル",
       "add": "スキルを追加",
@@ -1212,8 +1210,6 @@
       "enabled": "有効",
       "disabled": "無効",
       "noSkills": "利用可能なスキルはありません",
-      "learned": "エージェントが学習済み",
-      "noLearned": "エージェントはまだスキルを学習していません",
       "noUser": "カスタムスキルはありません",
       "copyToSkills": "スキルにコピー",
       "copied": "コピーしました ✓",
@@ -1230,7 +1226,7 @@
       "compatAutoDiscovered": "自動検出",
       "compatNotInstalled": "未インストール",
       "learnCreate": "スキルを作成 / インストール",
-      "learnCreateDesc": "エージェントが新しいスキルを作成したり、ツール呼び出しでインストールすることを許可します",
+      "learnCreateDesc": "エージェントが新しいスキルを作成したり、共有スキルプールへインストールすることを許可します。デフォルトでは現在の Agent のみ有効になります",
       "fetchRemote": "GitHub / ClawHub からスキルを取得",
       "fetchRemoteDesc": "有効にすると、エージェントは専門タスクの実行時にスキルを検索してインストールします。慎重にご使用ください",
       "safetyReview": "インストール前の安全審査",
@@ -1905,7 +1901,7 @@
     "subagentStopReason": "サブエージェントは正常に完了しませんでした（stopReason: {reason}）。",
     "subagentToolFailed": "サブエージェントのツール実行に失敗しました: {msg}",
     "subagentDispatched": "サブタスクを送信しました (task-id: {taskId})。完了後、結果は自動的に届きます。",
-    "installSkillDisabled": "自己学習スキル機能が有効になっていません。設定で「Agent のスキル作成/インストールを許可」を有効にしてください。",
+    "installSkillDisabled": "スキルのインストール機能が有効になっていません。設定で「Agent のスキル作成/インストールを許可」を有効にしてください。",
     "installSkillGithubDisabled": "GitHub スキル取得が有効になっていません。設定で「GitHub からのスキル取得を許可」を有効にしてください。",
     "installSkillInvalidGithubUrl": "無効な GitHub URL：{url}",
     "installSkillGithubApiFailed": "リポジトリ情報を取得できません（HTTP {status}）。URL を確認してください。",
@@ -2187,12 +2183,11 @@
     },
     "installSkill": {
       "label": "スキルをインストール",
-      "description": "自分用に新しいスキルをインストールします。モード A：GitHub リポジトリ URL（SKILL.md を含む）を指定して自動取得・インストール。モード B：skill_content + skill_name を直接指定、自作スキル向け。インストール後すぐに有効になります。",
+      "description": "新しいスキルを共有スキルプールへインストールし、デフォルトでは現在の Agent のみ有効にします。モード A：GitHub リポジトリ URL（SKILL.md を含む）を指定して自動取得・インストール。モード B：skill_content + skill_name を直接指定、自作スキル向け。",
       "githubUrlDesc": "GitHub リポジトリ URL（モード A）",
       "skillContentDesc": "SKILL.md の完全な内容（モード B）",
       "skillNameDesc": "スキル名（モード B の場合必須）",
-      "reasonDesc": "このスキルが必要な理由の説明（監査用、必須）",
-      "userRequestedDesc": "ユーザーが明示的にインストールを要求したか（true = ユーザースキル、false = 学習スキル）"
+      "reasonDesc": "このスキルが必要な理由の説明（監査用、必須）"
     },
     "updateSettings": {
       "label": "設定",

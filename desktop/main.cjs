@@ -2843,10 +2843,14 @@ wrapIpcOn("window-theme-changed", (event, theme) => {
   applyWindowThemeColors(win, theme);
 });
 
-// 设置窗口 → 主窗口的消息转发
+// 设置窗口 / 主窗口之间的设置事件转发
 wrapIpcOn("settings-changed", (_event, type, data) => {
-  if (mainWindow && !mainWindow.isDestroyed()) {
+  const sender = _event?.sender || null;
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents !== sender) {
     mainWindow.webContents.send("settings-changed", type, data);
+  }
+  if (settingsWindow && !settingsWindow.isDestroyed() && settingsWindow.webContents !== sender) {
+    settingsWindow.webContents.send("settings-changed", type, data);
   }
   if (type === "theme-changed" && data?.theme) {
     const name = data.theme;
