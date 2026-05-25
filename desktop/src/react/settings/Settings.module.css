@@ -3206,10 +3206,16 @@
 }
 
 .about-name {
+    display: inline-block;
     font-size: 1.3rem;
+    line-height: 1;
+    margin: 3px 0;
+    font-family: var(--font-serif);
     font-weight: 700;
-    color: var(--text);
-    letter-spacing: 0.02em;
+    color: #537D96;
+    letter-spacing: 0;
+    transform: scaleY(1.2);
+    transform-origin: center;
 }
 
 .about-tagline {
