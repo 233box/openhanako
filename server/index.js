@@ -1,5 +1,5 @@
 /**
- * Hanako Server — HTTP + WebSocket API
+ * HanaAgent Server — HTTP + WebSocket API
  *
  * 启动方式：
  *   node server/index.js              （独立运行）
@@ -848,7 +848,7 @@ try {
   const actualPort = address.port;
   serverRuntimeState.actualPort = actualPort;
 
-  log.log(`Hanako Server 运行在 http://${host}:${actualPort}`);
+  log.log(`HanaAgent Server 运行在 http://${host}:${actualPort}`);
   dlog.log("server", `listening on :${actualPort}`);
 
   // 写 server-info 文件，供 Electron 检测复用或外部工具查询。
