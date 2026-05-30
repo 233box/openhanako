@@ -510,6 +510,10 @@ export class Agent {
         const hit = all.find((a) => a.id === agentType || a.name === agentType);
         return hit?.id;
       },
+      // workflow 后台任务化：复用 subagent 的 deferred 基础设施，
+      // 完成后由 DeferredResultCoordinator 回灌主对话。
+      getDeferredStore: () => this._cb?.getDeferredResults?.(),
+      getSubagentRunStore: () => this._cb?.getSubagentRunStore?.(),
     });
 
     // 12. 组装 system prompt（按 master 构建，与 per-session 开关解耦）
