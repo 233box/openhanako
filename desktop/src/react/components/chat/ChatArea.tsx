@@ -108,7 +108,7 @@ const Panel = memo(function Panel({ path, active }: { path: string; active: bool
     }
     return ids;
   }, [items]);
-  const boxSelection = useBoxSelection({ messageElementsRef, orderedIds, sessionPath: path });
+  const boxSelection = useBoxSelection({ messageElementsRef, orderedIds, sessionPath: path, active });
   const handleCaptureSelection = useCallback(() => {
     if (!active) return;
     captureChatSelection(path);

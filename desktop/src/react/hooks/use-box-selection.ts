@@ -12,11 +12,13 @@ interface Params {
   messageElementsRef: RefObject<Map<string, HTMLDivElement>>;
   orderedIds: string[];
   sessionPath: string;
+  /** 是否当前显示的会话（Panel 的 active prop）。用于门控 document 级 Esc 监听，避免后台保活 Panel 响应 Esc 清掉不在视口内的选中集。 */
+  active: boolean;
 }
 
 const DRAG_THRESHOLD = 3;
 
-export function useBoxSelection({ messageElementsRef, orderedIds, sessionPath }: Params) {
+export function useBoxSelection({ messageElementsRef, orderedIds, sessionPath, active }: Params) {
   const setMessageSelection = useStore(s => s.setMessageSelection);
   const addMessagesToSelection = useStore(s => s.addMessagesToSelection);
   const toggleMessageSelection = useStore(s => s.toggleMessageSelection);
@@ -60,6 +62,7 @@ export function useBoxSelection({ messageElementsRef, orderedIds, sessionPath }:
       if (rafRef.current != null) return;
       rafRef.current = window.requestAnimationFrame(() => {
         rafRef.current = null;
+        // 拖拽期间若有消息流式 register/unregister，中间命中集会随之抖动；最终选择以 onUp 同步重算为准。
         const hit = computeHit(rect);
         setMessageSelection(sessionPath, Array.from(new Set([...drag.base, ...hit])));
         if (hit.length > 0) anchorRef.current = hit[hit.length - 1];
@@ -89,8 +92,9 @@ export function useBoxSelection({ messageElementsRef, orderedIds, sessionPath }:
   }, [enabled, computeHit, setMessageSelection, sessionPath]);
 
   // Esc 清空并退出选择模式。
+  // active 门控：只有当前显示的 Panel 才挂 document 级监听，防止后台保活 Panel 响应 Esc 清掉不可见的选中集。
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !active) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       if ((useStore.getState().selectedIdsBySession[sessionPath]?.length ?? 0) > 0) {
@@ -99,7 +103,7 @@ export function useBoxSelection({ messageElementsRef, orderedIds, sessionPath }:
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [enabled, clearSelection, sessionPath]);
+  }, [enabled, active, clearSelection, sessionPath]);
 
   // 仅当按下落在留白（非任何消息内部）才起手框选。
   const onPointerDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
