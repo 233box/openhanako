@@ -99,6 +99,13 @@
     border-radius: 50%;
 }
 
+/* 名字 + 复用后缀同处 grid 第 2 单元：后缀作名字的延长，摘要回到第 3 列 → 单行不换行 */
+.nameGroup {
+    display: flex;
+    align-items: baseline;
+    min-width: 0;
+}
+
 .name {
     font-size: 0.78rem;
     color: var(--text);
@@ -107,12 +114,13 @@
     text-overflow: ellipsis;
 }
 
-/* 复用实例后缀（如 ·探索）：不收缩、低对比度，作身份标注 */
+/* 复用实例后缀（如 ·探索）：与名字同色同号、紧贴，读作名字的延长后缀（非独立灰块） */
 .instance {
     flex-shrink: 0;
-    font-size: 0.72rem;
-    color: var(--text-muted);
-    margin-left: 2px;
+    font-size: 0.78rem;
+    color: var(--text);
+    margin-left: 1px;
+    white-space: nowrap;
 }
 
 .summary {

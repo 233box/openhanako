@@ -58,8 +58,10 @@ function SubagentActivityRow({ entry, agents, open, onToggle }: {
         <span className={styles.avatar}>
           <AgentAvatar info={info} className={styles.avatarImg} alt={info.displayName} />
         </span>
-        <span className={styles.name} title={info.displayName}>{info.displayName}</span>
-        {entry.reuseInstance ? <span className={styles.instance} title={entry.reuseInstance}>· {entry.reuseInstance}</span> : null}
+        <span className={styles.nameGroup}>
+          <span className={styles.name} title={info.displayName}>{info.displayName}</span>
+          {entry.reuseInstance ? <span className={styles.instance} title={entry.reuseInstance}>·{entry.reuseInstance}</span> : null}
+        </span>
         <span className={styles.summary} title={entry.summary || ''}>{entry.summary || ''}</span>
       </button>
       {open && (
