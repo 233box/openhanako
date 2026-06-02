@@ -2039,6 +2039,7 @@
     "settingsCancelled": "使用者取消了「{label}」的修改",
     "settingsTimeout": "「{label}」修改確認逾時，設定未變更",
     "subagentMaxConcurrent": "目前已有 {max} 個子 agent 在執行，請等待完成後再發起。",
+    "subagentParentSessionRequired": "subagent 需要活躍父會話和背景任務儲存，無法在目前上下文建立可繼續實例。",
     "subagentFailed": "子 agent 執行失敗: {msg}",
     "subagentTimeout": "子 agent 執行逾時（{minutes} 分鐘）",
     "subagentAborted": "子 agent 已被終止",
@@ -2049,7 +2050,8 @@
     "subagentStopReason": "子 agent 未完整完成（stopReason: {reason}）。",
     "subagentToolFailed": "子 agent 工具執行失敗: {msg}",
     "subagentDispatched": "子任務已派出 (task-id: {taskId})。完成後結果會自動送達。",
-    "subagentReuseQueued": "子任務已派出 (task-id: {taskId})。實例「{instance}」正忙，已排隊，前一個任務完成後接著跑。",
+    "subagentThreadQueued": "子任務已派出 (task-id: {taskId})。實例 {threadId} 正忙，已排隊，前一個任務完成後接著跑。",
+    "subagentThreadClosed": "子 Agent 實例已關閉：{threadId}",
     "installSkillDisabled": "技能安裝能力未啟用。請在設定中開啟「允許 Agent 自行建立/安裝技能」。",
     "installSkillGithubDisabled": "GitHub 技能獲取未啟用。請在設定中開啟「允許從 GitHub 獲取技能」。",
     "installSkillInvalidGithubUrl": "無效的 GitHub URL：{url}",
@@ -2296,9 +2298,9 @@
     },
     "currentStatus": {
       "label": "當前狀態",
-      "description": "查詢當前環境的輕量狀態。可查：時間、邏輯日期、agent 身份、使用者/agent 頭像外觀、模型身份、Bridge 平台上下文，以及使用者當前可見的介面視野。重要：系統提示裡的日期時間是 session 建立時的快照，可能已過時；需要精確當前時間、排程、提醒、按鐘點算日期、問候等任何在意時分的場景，用 action=get、key=time。key=logical_date 僅用於判斷 4:00 邊界下 Hana 該把哪一天當今天，不返回時分秒。key=appearance 用於使用者問「我/當前 agent 長什麼樣」。當使用者用「這個檔案、這裡、當前/開啟的/可見的/選中的項、釘住的視窗、當前 Bridge 會話/平台、當前資料夾」指代介面時，先用 action=get、key=ui_context 取當前視野再繼續。",
+      "description": "查詢當前環境的輕量狀態。可查：時間、邏輯日期、agent 身份、使用者/agent 頭像外觀、模型身份、Bridge 平台上下文、開放子 Agent 實例，以及使用者當前可見的介面視野。重要：系統提示裡的日期時間是 session 建立時的快照，可能已過時；需要精確當前時間、排程、提醒、按鐘點算日期、問候等任何在意時分的場景，用 action=get、key=time。key=logical_date 僅用於判斷 4:00 邊界下 Hana 該把哪一天當今天，不返回時分秒。key=appearance 用於使用者問「我/當前 agent 長什麼樣」。當使用者用「這個檔案、這裡、當前/開啟的/可見的/選中的項、釘住的視窗、當前 Bridge 會話/平台、當前資料夾」指代介面時，先用 action=get、key=ui_context 取當前視野再繼續。",
       "actionDesc": "list 返回所有可查詢的狀態鍵；get 取某個狀態鍵的值。",
-      "keyDesc": "action=get 時要取的狀態鍵。常用鍵：time、logical_date、agent、appearance、model、ui_context、session_files、bridge_context。引用當前 Bridge 平台/會話用 bridge_context。"
+      "keyDesc": "action=get 時要取的狀態鍵。常用鍵：time、logical_date、agent、appearance、model、ui_context、session_files、bridge_context、subagents。引用當前 Bridge 平台/會話用 bridge_context；續接或關閉子 Agent 前用 subagents。"
     },
     "pinnedMemory": {
       "pinLabel": "釘選記憶",
@@ -2331,12 +2333,26 @@
     },
     "subagent": {
       "label": "啟動子 Agent",
-      "description": "建立一個子 agent 執行緒執行委派任務。工具會立即返回 taskId，結果會作為背景結果送回目前對話。可用 agent 參數指定目標 agent，省略則使用目前 agent；傳 agent=\"?\" 查看可用 agent。",
+      "description": "建立可繼續的子 Agent 實例執行委派任務，立即返回 taskId 和 threadId；結果會在背景送回目前對話。用 agent 指定目標，agent=\"?\" 查看可用 Agent。",
       "taskDesc": "給子 agent 的完整指令與必要上下文。子 agent 看不到目前對話歷史；需要它知道的內容都寫在這裡。",
       "agentDesc": "目標 agent 的 id，使用團隊列表裡反引號中的值。根據任務選擇人格、專長與模型最合適的 agent；團隊列表會展示模型與簡介。省略則目前 agent 自己執行；傳 \"?\" 列出可用 agent。",
-      "instanceDesc": "可選的可複用執行緒名，如「探索」「下筆」。同一父對話 + 同一 agent + 同一 instance 會續接同一個子執行緒；省略則建立臨時執行緒，完成後不再續接。並發送到同一 instance 會自動排隊。",
+      "labelDesc": "可選顯示標籤，如「探索一」「下筆二」。只影響使用者看到的名字；續接實例請使用返回的 threadId 呼叫 subagent_reply。",
+      "instanceDesc": "舊欄位，僅作為 label 相容；新呼叫請使用 label，續接請使用 threadId。",
       "accessDesc": "可選權限檔：\"read\" 用於唯讀調研、探索、審查；\"write\" 用於執行、修改、跑指令。省略則繼承目前會話權限。",
       "modelDesc": "可選模型覆蓋，必須使用 provider/id。省略則使用目標 agent 的聊天模型設定。"
+    },
+    "subagentReply": {
+      "label": "繼續子 Agent",
+      "description": "向目前會話中已開啟的子 Agent 實例追加任務。先用 current_status 的 subagents 查看可用 threadId。",
+      "threadIdDesc": "要繼續的子 Agent 實例 threadId。必須來自目前會話的開放 subagent 實例。",
+      "taskDesc": "追加給該子 Agent 的完整指令與必要上下文。",
+      "accessDesc": "可選權限檔：\"read\" 或 \"write\"。省略則沿用該實例權限，仍會受目前會話權限限制。"
+    },
+    "subagentClose": {
+      "label": "關閉子 Agent",
+      "description": "關閉目前會話中不再需要的子 Agent 實例，釋放可繼續實例槽位。",
+      "threadIdDesc": "要關閉的開放子 Agent 實例 threadId。",
+      "reasonDesc": "可選關閉原因，會寫入該實例的最後摘要。"
     },
     "installSkill": {
       "label": "安裝技能",

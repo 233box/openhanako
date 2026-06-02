@@ -207,6 +207,25 @@ describe("agent.systemPrompt: master / per-session 解耦", () => {
     await agent.dispose();
   });
 
+  it("main system prompt guides Codex-like subagent instance reuse without injecting runtime state", async () => {
+    const agent = makeAgent(agentsDir, tmpDir);
+    await agent.init(() => {});
+
+    const prompt = agent.buildSystemPrompt({ forceMemoryEnabled: false });
+
+    expect(prompt).toContain("## Subagent Collaboration");
+    expect(prompt).toContain("current_status");
+    expect(prompt).toContain("subagents");
+    expect(prompt).toContain("subagent_reply");
+    expect(prompt).toContain("subagent_close");
+    expect(prompt).not.toContain("thread-a");
+
+    const subagentPrompt = agent.buildSystemPrompt({ forceMemoryEnabled: false, forSubagent: true });
+    expect(subagentPrompt).not.toContain("## Subagent Collaboration");
+
+    await agent.dispose();
+  });
+
   it("Computer Use 开启时，system prompt 引导桌面应用控制不要绕去 shell", async () => {
     const agent = makeAgent(agentsDir, tmpDir);
     agent.setCallbacks({

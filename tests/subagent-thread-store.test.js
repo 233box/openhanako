@@ -20,50 +20,54 @@ describe("SubagentThreadStore", () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("records an ephemeral thread, attaches its child session, then closes it after the run", () => {
+  it("records a direct thread, attaches its child session, then keeps it open for follow-up", () => {
     const store = new SubagentThreadStore(storePath);
     store.beginRun("subagent-1", {
-      kind: "ephemeral",
+      kind: "direct",
       parentSessionPath: "/parent.jsonl",
       agentId: "hana",
+      label: "探索一",
+      access: "read",
       summary: "read files",
     });
     store.attachSession("subagent-1", "/child.jsonl");
-    store.finishRun("subagent-1", { status: "resolved", summary: "done", close: true });
+    store.finishRun("subagent-1", { status: "resolved", summary: "done", close: false });
 
     expect(store.get("subagent-1")).toMatchObject({
       threadId: "subagent-1",
-      kind: "ephemeral",
-      status: "closed",
+      kind: "direct",
+      status: "open",
       lastRunStatus: "resolved",
       parentSessionPath: "/parent.jsonl",
       agentId: "hana",
       childSessionPath: "/child.jsonl",
+      label: "探索一",
+      access: "read",
       summary: "done",
       runCount: 1,
     });
-    expect(store.get("subagent-1").closedAt).toBeTruthy();
+    expect(store.get("subagent-1").closedAt).toBeNull();
   });
 
-  it("keeps reusable threads open across runs and increments runCount", () => {
+  it("keeps direct threads open across runs and increments runCount", () => {
     const store = new SubagentThreadStore(storePath);
-    const threadId = "reusable::/parent.jsonl::butter::探索";
+    const threadId = "subagent-thread-1";
 
     store.beginRun(threadId, {
-      kind: "reusable",
+      kind: "direct",
       parentSessionPath: "/parent.jsonl",
       agentId: "butter",
-      instance: "探索",
-      reuseKey: "/parent.jsonl::butter::探索",
+      label: "探索一",
+      access: "read",
     });
     store.attachSession(threadId, "/child.jsonl");
     store.finishRun(threadId, { status: "resolved", summary: "first", close: false });
     store.beginRun(threadId, {
-      kind: "reusable",
+      kind: "direct",
       parentSessionPath: "/parent.jsonl",
       agentId: "butter",
-      instance: "探索",
-      reuseKey: "/parent.jsonl::butter::探索",
+      label: "探索一",
+      access: "read",
     });
     expect(store.get(threadId)).toMatchObject({
       status: "open",
@@ -73,11 +77,12 @@ describe("SubagentThreadStore", () => {
     store.finishRun(threadId, { status: "resolved", summary: "second", close: false });
 
     expect(store.get(threadId)).toMatchObject({
-      kind: "reusable",
+      kind: "direct",
       status: "open",
       lastRunStatus: "resolved",
       childSessionPath: "/child.jsonl",
-      instance: "探索",
+      label: "探索一",
+      access: "read",
       runCount: 2,
     });
     expect(store.get(threadId).closedAt).toBeNull();
@@ -110,9 +115,9 @@ describe("SubagentThreadStore", () => {
 
   it("removes all threads owned by a parent session", () => {
     const store = new SubagentThreadStore(storePath);
-    store.beginRun("a", { kind: "ephemeral", parentSessionPath: "/s/a.jsonl" });
+    store.beginRun("a", { kind: "direct", parentSessionPath: "/s/a.jsonl" });
     store.beginRun("b", { kind: "workflow_node", parentSessionPath: "/s/a.jsonl" });
-    store.beginRun("c", { kind: "ephemeral", parentSessionPath: "/s/b.jsonl" });
+    store.beginRun("c", { kind: "direct", parentSessionPath: "/s/b.jsonl" });
 
     expect(store.removeBySession("/s/a.jsonl")).toBe(2);
     expect(store.get("a")).toBeNull();
@@ -120,13 +125,13 @@ describe("SubagentThreadStore", () => {
     expect(store.get("c")).toBeTruthy();
   });
 
-  it("rehydrates orphan pending runs as failed without closing reusable threads", () => {
+  it("rehydrates orphan pending runs as failed without closing direct threads", () => {
     fs.writeFileSync(storePath, JSON.stringify({
       schemaVersion: SUBAGENT_THREAD_STORE_VERSION,
       threads: {
         "subagent-1": {
           threadId: "subagent-1",
-          kind: "ephemeral",
+          kind: "direct",
           status: "open",
           lastRunStatus: "pending",
           parentSessionPath: "/s/a.jsonl",
@@ -134,9 +139,9 @@ describe("SubagentThreadStore", () => {
           createdAt: "2026-06-01T00:00:00.000Z",
           lastRunAt: "2026-06-01T00:01:00.000Z",
         },
-        "reusable::k": {
-          threadId: "reusable::k",
-          kind: "reusable",
+        "workflow-1::node-1": {
+          threadId: "workflow-1::node-1",
+          kind: "workflow_node",
           status: "open",
           lastRunStatus: "pending",
           parentSessionPath: "/s/a.jsonl",
@@ -150,16 +155,134 @@ describe("SubagentThreadStore", () => {
     const store = new SubagentThreadStore(storePath);
 
     expect(store.get("subagent-1")).toMatchObject({
-      kind: "ephemeral",
-      status: "closed",
-      lastRunStatus: "failed",
-      closedAt: "2026-06-01T00:01:00.000Z",
-    });
-    expect(store.get("reusable::k")).toMatchObject({
-      kind: "reusable",
+      kind: "direct",
       status: "open",
       lastRunStatus: "failed",
       closedAt: null,
     });
+    expect(store.get("workflow-1::node-1")).toMatchObject({
+      kind: "workflow_node",
+      status: "closed",
+      lastRunStatus: "failed",
+      closedAt: "2026-06-01T00:02:00.000Z",
+    });
+  });
+
+  it("normalizes legacy ephemeral/reusable threads to direct and maps instance to label on read", () => {
+    fs.writeFileSync(storePath, JSON.stringify({
+      schemaVersion: SUBAGENT_THREAD_STORE_VERSION,
+      threads: {
+        "subagent-old": {
+          threadId: "subagent-old",
+          kind: "ephemeral",
+          status: "closed",
+          lastRunStatus: "resolved",
+          parentSessionPath: "/s/a.jsonl",
+        },
+        "reusable::/s/a.jsonl::butter::探索": {
+          threadId: "reusable::/s/a.jsonl::butter::探索",
+          kind: "reusable",
+          status: "open",
+          lastRunStatus: "resolved",
+          parentSessionPath: "/s/a.jsonl",
+          instance: "探索",
+          reuseKey: "/s/a.jsonl::butter::探索",
+        },
+      },
+    }, null, 2));
+
+    const store = new SubagentThreadStore(storePath);
+
+    expect(store.get("subagent-old")).toMatchObject({
+      kind: "direct",
+      status: "closed",
+    });
+    expect(store.get("reusable::/s/a.jsonl::butter::探索")).toMatchObject({
+      kind: "direct",
+      status: "open",
+      label: "探索",
+    });
+    expect(store.get("reusable::/s/a.jsonl::butter::探索").instance).toBeUndefined();
+    expect(store.get("reusable::/s/a.jsonl::butter::探索").reuseKey).toBeUndefined();
+  });
+
+  it("lists open direct threads for one parent session and excludes workflow nodes", () => {
+    const store = new SubagentThreadStore(storePath);
+    store.beginRun("subagent-a", {
+      kind: "direct",
+      parentSessionPath: "/s/a.jsonl",
+      agentId: "hana",
+      agentName: "Hana",
+      label: "探索一",
+      access: "read",
+      summary: "读完生命周期代码",
+    });
+    store.finishRun("subagent-a", { status: "resolved", summary: "可继续", close: false });
+    store.beginRun("subagent-b", {
+      kind: "direct",
+      parentSessionPath: "/s/b.jsonl",
+      agentId: "hana",
+      label: "探索一",
+      access: "read",
+    });
+    store.beginRun("workflow-1::node-1", {
+      kind: "workflow_node",
+      parentSessionPath: "/s/a.jsonl",
+      label: "探索",
+    });
+
+    expect(store.listOpenDirectBySession("/s/a.jsonl")).toEqual([
+      expect.objectContaining({
+        threadId: "subagent-a",
+        kind: "direct",
+        status: "open",
+        agentName: "Hana",
+        label: "探索一",
+        access: "read",
+        summary: "可继续",
+      }),
+    ]);
+  });
+
+  it("closes a direct thread explicitly and rejects closing workflow nodes through direct close", () => {
+    const store = new SubagentThreadStore(storePath);
+    store.beginRun("subagent-a", { kind: "direct", parentSessionPath: "/s/a.jsonl" });
+    store.beginRun("workflow-1::node-1", { kind: "workflow_node", parentSessionPath: "/s/a.jsonl" });
+
+    expect(store.closeDirectThread("subagent-a", { summary: "不用了" })).toMatchObject({
+      threadId: "subagent-a",
+      status: "closed",
+      summary: "不用了",
+    });
+    expect(store.closeDirectThread("workflow-1::node-1", { summary: "x" })).toBeNull();
+  });
+
+  it("serializes work per direct thread without blocking different threads", async () => {
+    const store = new SubagentThreadStore(storePath);
+    const order = [];
+    let releaseA;
+    const gateA = new Promise((resolve) => { releaseA = resolve; });
+
+    const p1 = store.runSerialized("subagent-a", async () => {
+      order.push("a1-start");
+      await gateA;
+      order.push("a1-end");
+    });
+    const p2 = store.runSerialized("subagent-a", async () => {
+      order.push("a2-start");
+    });
+    const p3 = store.runSerialized("subagent-b", async () => {
+      order.push("b-start");
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(order).toEqual(["a1-start", "b-start"]);
+    expect(store.isBusy("subagent-a")).toBe(true);
+
+    releaseA();
+    await Promise.all([p1, p2, p3]);
+
+    expect(order).toEqual(["a1-start", "b-start", "a1-end", "a2-start"]);
+    expect(store.isBusy("subagent-a")).toBe(false);
   });
 });

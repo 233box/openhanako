@@ -117,6 +117,8 @@ const migrations = {
   35: migrateMiniMaxTokenPlanAnthropicEndpoint,
   // subagent thread/run 分层：从旧 run/reusable 账本迁出显式 thread registry
   36: migrateSubagentThreadRegistry,
+  // subagent direct instance：旧 ephemeral/reusable kind 归一为 direct，instance 变成展示 label
+  37: migrateSubagentDirectThreadSemantics,
 };
 
 // ── Runner ──────────────────────────────────────────────────────────────────
@@ -2742,7 +2744,7 @@ function migrateSubagentThreadRegistry(ctx) {
     const threadId = run.threadId || run.taskId;
     const status = normalizeMigratedRunStatus(run.status);
     threadStore.beginRun(threadId, {
-      kind: "ephemeral",
+      kind: "direct",
       parentSessionPath: run.parentSessionPath || null,
       agentId: run.executorAgentId || run.requestedAgentId || null,
       agentName: run.executorAgentNameSnapshot || run.requestedAgentNameSnapshot || null,
@@ -2758,7 +2760,7 @@ function migrateSubagentThreadRegistry(ctx) {
       summary: run.summary || run.reason || null,
       close: true,
     });
-    runStore.upsert(run.taskId, { threadId, threadKind: "ephemeral" });
+    runStore.upsert(run.taskId, { threadId, threadKind: "direct" });
     importedRuns += 1;
   }
 
@@ -2770,14 +2772,13 @@ function migrateSubagentThreadRegistry(ctx) {
     if (!reuseKey || !rec || typeof rec !== "object") continue;
     const threadId = `reusable::${reuseKey}`;
     threadStore.upsert(threadId, {
-      kind: "reusable",
+      kind: "direct",
       status: "open",
       lastRunStatus: normalizeMigratedRunStatus(rec.lastStatus),
       parentSessionPath: rec.parentSessionPath || null,
       agentId: rec.agentId || null,
       childSessionPath: rec.childSessionPath || null,
-      instance: rec.taskSuffix || null,
-      reuseKey,
+      label: rec.taskSuffix || null,
       summary: rec.summary || null,
       runCount: rec.runCount || 0,
       createdAt: rec.createdAt || null,
@@ -2787,6 +2788,68 @@ function migrateSubagentThreadRegistry(ctx) {
   }
 
   log?.(`[migrations] #36: subagent thread registry backfilled (runs=${importedRuns}, reusable=${importedReusable})`);
+}
+
+function pickLegacySubagentLabel(rec) {
+  if (typeof rec?.label === "string" && rec.label.trim()) return rec.label.trim();
+  if (typeof rec?.instance === "string" && rec.instance.trim()) return rec.instance.trim();
+  if (typeof rec?.taskSuffix === "string" && rec.taskSuffix.trim()) return rec.taskSuffix.trim();
+  if (typeof rec?.reuseKey === "string" && rec.reuseKey.trim()) {
+    const parts = rec.reuseKey.split("::").map((part) => part.trim()).filter(Boolean);
+    return parts.length ? parts[parts.length - 1] : null;
+  }
+  return null;
+}
+
+function migrateSubagentDirectThreadSemantics(ctx) {
+  const { hanakoHome, log } = ctx;
+  const threadsPath = path.join(hanakoHome, "subagent-threads.json");
+  const runsPath = path.join(hanakoHome, "subagent-runs.json");
+  let threadCount = 0;
+  let runCount = 0;
+
+  const rawThreads = readJsonForMigration(threadsPath);
+  const threads = rawThreads?.threads && typeof rawThreads.threads === "object" ? rawThreads.threads : null;
+  if (threads) {
+    for (const rec of Object.values(threads)) {
+      if (!rec || typeof rec !== "object") continue;
+      if (rec.kind === "ephemeral" || rec.kind === "reusable") {
+        rec.kind = "direct";
+        threadCount += 1;
+      }
+      const label = pickLegacySubagentLabel(rec);
+      if (label && !(typeof rec.label === "string" && rec.label.trim())) {
+        rec.label = label;
+        threadCount += 1;
+      }
+      for (const key of ["instance", "reuseKey", "taskSuffix"]) {
+        if (Object.prototype.hasOwnProperty.call(rec, key)) {
+          delete rec[key];
+          threadCount += 1;
+        }
+      }
+    }
+    if (threadCount > 0) {
+      atomicWriteSync(threadsPath, JSON.stringify(rawThreads, null, 2) + "\n");
+    }
+  }
+
+  const rawRuns = readJsonForMigration(runsPath);
+  const runs = rawRuns?.runs && typeof rawRuns.runs === "object" ? rawRuns.runs : null;
+  if (runs) {
+    for (const rec of Object.values(runs)) {
+      if (!rec || typeof rec !== "object") continue;
+      if (rec.threadKind === "ephemeral" || rec.threadKind === "reusable") {
+        rec.threadKind = "direct";
+        runCount += 1;
+      }
+    }
+    if (runCount > 0) {
+      atomicWriteSync(runsPath, JSON.stringify(rawRuns, null, 2) + "\n");
+    }
+  }
+
+  log?.(`[migrations] #37: subagent direct semantics normalized (threads=${threadCount}, runs=${runCount})`);
 }
 
 function migrateLegacyApiKeyAuthEntriesToProviders(ctx) {

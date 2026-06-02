@@ -2047,6 +2047,7 @@
     "settingsCancelled": "User cancelled change of \"{label}\"",
     "settingsTimeout": "\"{label}\" change confirmation timed out, no changes made",
     "subagentMaxConcurrent": "{max} sub-agents are already running, please wait before starting new ones.",
+    "subagentParentSessionRequired": "subagent requires an active parent session and deferred task store; cannot create a continuable instance in this context.",
     "subagentFailed": "Sub-agent execution failed: {msg}",
     "subagentTimeout": "Sub-agent timed out after {minutes} minutes",
     "subagentAborted": "Sub-agent was aborted",
@@ -2057,7 +2058,8 @@
     "subagentStopReason": "Sub-agent did not finish cleanly (stopReason: {reason}).",
     "subagentToolFailed": "Sub-agent tool failed: {msg}",
     "subagentDispatched": "Sub-task dispatched (task-id: {taskId}). Results will be delivered when ready.",
-    "subagentReuseQueued": "Sub-task dispatched (task-id: {taskId}). Instance \"{instance}\" is busy; queued to run after the current task finishes.",
+    "subagentThreadQueued": "Sub-task dispatched (task-id: {taskId}). Instance {threadId} is busy; queued to run after the current task finishes.",
+    "subagentThreadClosed": "Sub-agent instance closed: {threadId}",
     "installSkillDisabled": "Skill installation is not enabled. Please enable \"Allow Agent to create/install skills\" in settings.",
     "installSkillGithubDisabled": "GitHub skill fetching not enabled. Please enable \"Allow fetching skills from GitHub\" in settings.",
     "installSkillInvalidGithubUrl": "Invalid GitHub URL: {url}",
@@ -2304,9 +2306,9 @@
     },
     "currentStatus": {
       "label": "Current Status",
-      "description": "Lightweight current-environment status. Use it to check fresh state such as time, logical date, agent identity, user/agent avatar appearance, model identity, Bridge platform context, and the user's visible UI context. IMPORTANT: The date/time shown in the system prompt is a snapshot from when the session was created and may be outdated. For precise current time, scheduling, reminders, date calculations that need clock time, greetings, or any case where hour/minute matters, call this tool with action=\"get\", key=\"time\". Use key=\"logical_date\" only when you need to know which calendar day Hana should treat as today under the 4:00 boundary; it does not return hour/minute/second. Use key=\"appearance\" when the user asks what the user or current agent looks like. When the user refers to this file, here, the current/open/visible/selected item, the pinned window, current Bridge chat/platform, or the current folder, call this tool with action=\"get\", key=\"ui_context\" first to resolve the reference.",
+      "description": "Lightweight current-environment status. Use it to check fresh state such as time, logical date, agent identity, user/agent avatar appearance, model identity, Bridge platform context, open sub-agent instances, and the user's visible UI context. IMPORTANT: The date/time shown in the system prompt is a snapshot from when the session was created and may be outdated. For precise current time, scheduling, reminders, date calculations that need clock time, greetings, or any case where hour/minute matters, call this tool with action=\"get\", key=\"time\". Use key=\"logical_date\" only when you need to know which calendar day Hana should treat as today under the 4:00 boundary; it does not return hour/minute/second. Use key=\"appearance\" when the user asks what the user or current agent looks like. When the user refers to this file, here, the current/open/visible/selected item, the pinned window, current Bridge chat/platform, or the current folder, call this tool with action=\"get\", key=\"ui_context\" first to resolve the reference.",
       "actionDesc": "list returns available status keys; get returns one status key value.",
-      "keyDesc": "Status key to fetch when action=get. Common keys: time, logical_date, agent, appearance, model, ui_context, session_files, bridge_context. Use bridge_context for references to the current Bridge platform/chat."
+      "keyDesc": "Status key to fetch when action=get. Common keys: time, logical_date, agent, appearance, model, ui_context, session_files, bridge_context, subagents. Use bridge_context for references to the current Bridge platform/chat; use subagents before continuing or closing a sub-agent."
     },
     "pinnedMemory": {
       "pinLabel": "Pin Memory",
@@ -2339,12 +2341,26 @@
     },
     "subagent": {
       "label": "Launch Sub-agent",
-      "description": "Create a subagent thread for a delegated task. Returns immediately with a taskId; results are delivered back to the current conversation in the background. Use agent to target another agent, omit it for the current agent, or pass agent=\"?\" to list agents.",
+      "description": "Create a continuable sub-agent instance for a delegated task. Returns immediately with taskId and threadId; results are delivered back in the background. Use agent to target an agent, or agent=\"?\" to list agents.",
       "taskDesc": "Complete instructions and required context for the subagent. The subagent cannot see the current conversation history unless you include it here.",
       "agentDesc": "Target agent id from the team roster, using the value shown in backticks. Choose the agent whose persona, strengths, and model best fit the task; the roster shows each model and summary. Omit for the current agent; pass \"?\" to list agents.",
-      "instanceDesc": "Optional reusable thread name, such as \"research\" or \"draft\". Same parent conversation + agent + instance resumes the same child thread. Omit for an ephemeral thread that will not be resumed. Concurrent sends to the same instance queue automatically.",
+      "labelDesc": "Optional display label, such as \"research 1\" or \"draft 2\". Display-only; resume by passing the returned threadId to subagent_reply.",
+      "instanceDesc": "Legacy field, accepted only as label compatibility. New calls should use label; resume with threadId.",
       "accessDesc": "Optional permission tier: \"read\" for read-only research, exploration, or review; \"write\" for execution, edits, or commands. Omit to inherit the current session permission.",
       "modelDesc": "Optional model override as provider/id. Omit to use the target agent's configured chat model."
+    },
+    "subagentReply": {
+      "label": "Continue Sub-agent",
+      "description": "Append a task to an open sub-agent instance in the current session. Use current_status with subagents first to see available threadIds.",
+      "threadIdDesc": "The threadId of the sub-agent instance to continue. It must be an open subagent instance in the current session.",
+      "taskDesc": "Complete instructions and required context to append to that sub-agent.",
+      "accessDesc": "Optional permission tier: \"read\" or \"write\". Omit to reuse the instance access, still bounded by the current session permission."
+    },
+    "subagentClose": {
+      "label": "Close Sub-agent",
+      "description": "Close a no-longer-needed sub-agent instance in the current session and free a continuable instance slot.",
+      "threadIdDesc": "The threadId of the open sub-agent instance to close.",
+      "reasonDesc": "Optional closing reason, saved as the instance's final summary."
     },
     "installSkill": {
       "label": "Install Skill",

@@ -82,6 +82,7 @@ describe("current_status tool", () => {
       "ui_context",
       "session_files",
       "bridge_context",
+      "subagents",
     ]);
     expect(payload.usage).toContain("list");
     expect(payload.usage).toContain("get");
@@ -492,6 +493,55 @@ describe("current_status tool", () => {
     expect(payload).toEqual({
       bridge_context: {
         isBridgeSession: false,
+      },
+    });
+  });
+
+  it("returns open direct subagent instances for the current session", async () => {
+    const tool = createCurrentStatusTool({
+      listOpenSubagentThreads: (sessionPath) => sessionPath === "/session/s1.jsonl"
+        ? [{
+            threadId: "thread-a",
+            agentId: "other-agent",
+            agentName: "毛毛",
+            label: "探索一",
+            access: "read",
+            status: "open",
+            lastRunStatus: "resolved",
+            childSessionPath: "/child/a.jsonl",
+            summary: "读完生命周期代码",
+            runCount: 2,
+            lastRunAt: "2026-06-02T10:00:00.000Z",
+            updatedAt: "2026-06-02T10:01:00.000Z",
+          }]
+        : [],
+    });
+
+    const payload = textPayload(await tool.execute(
+      "call_1",
+      { action: "get", key: "subagents" },
+      null,
+      null,
+      makeCtx("/session/s1.jsonl"),
+    ));
+
+    expect(payload).toEqual({
+      subagents: {
+        sessionPath: "/session/s1.jsonl",
+        open: [{
+          threadId: "thread-a",
+          agentId: "other-agent",
+          agentName: "毛毛",
+          label: "探索一",
+          access: "read",
+          status: "open",
+          lastRunStatus: "resolved",
+          childSessionPath: "/child/a.jsonl",
+          summary: "读完生命周期代码",
+          runCount: 2,
+          lastRunAt: "2026-06-02T10:00:00.000Z",
+          updatedAt: "2026-06-02T10:01:00.000Z",
+        }],
       },
     });
   });

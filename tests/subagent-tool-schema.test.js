@@ -37,8 +37,10 @@ describe("subagent tool schema copy", () => {
       expect(def.agentDesc).toMatch(/人格|persona/);
       expect(def.agentDesc).toMatch(/模型|model/);
       expect(def.agentDesc).not.toMatch(/括号|parentheses/);
-      expect(def.instanceDesc).toMatch(/临时线程|臨時執行緒|ephemeral thread/);
-      expect(def.instanceDesc).not.toMatch(/不留记忆|no memory/);
+      expect(def.labelDesc).toMatch(/展示|顯示|display/);
+      expect(def.labelDesc).toMatch(/threadId|subagent_reply/);
+      expect(def.instanceDesc).toMatch(/旧字段|舊欄位|[Ll]egacy/);
+      expect(def.instanceDesc).not.toMatch(/临时线程|臨時執行緒|ephemeral thread|不留记忆|no memory/);
       expect(def.modelDesc).toMatch(/聊天模型|chat model/);
       expect(def.modelDesc).not.toMatch(/utility/);
     }

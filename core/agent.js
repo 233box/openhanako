@@ -30,7 +30,11 @@ import { createExperienceTools } from "../lib/tools/experience.js";
 import { createInstallSkillTool } from "../lib/tools/install-skill.js";
 import { createNotifyTool } from "../lib/tools/notify-tool.js";
 import { createUpdateSettingsTool } from "../lib/tools/update-settings-tool.js";
-import { createSubagentTool } from "../lib/tools/subagent-tool.js";
+import {
+  createSubagentCloseTool,
+  createSubagentReplyTool,
+  createSubagentTool,
+} from "../lib/tools/subagent-tool.js";
 import { writeSubagentSessionMeta } from "../lib/subagent-executor-metadata.js";
 import { createCheckDeferredTool } from "../lib/tools/check-deferred-tool.js";
 import { createWaitTool } from "../lib/tools/wait-tool.js";
@@ -118,6 +122,10 @@ export class Agent {
     this._computerUseTool = null;
     this._notifyTool = null;
     this._stopTaskTool = null;
+    this._subagentTool = null;
+    this._subagentReplyTool = null;
+    this._subagentCloseTool = null;
+    this._workflowTool = null;
     this._currentStatusTool = null;
     this._terminalTool = null;
 
@@ -373,6 +381,7 @@ export class Agent {
       getUiContext: (sessionPath) => this._cb?.getEngine?.()?.getUiContext?.(sessionPath) || null,
       listSessionFiles: (sessionPath) => this._cb?.getEngine?.()?.listSessionFiles?.(sessionPath) || [],
       getBridgeContext: (sessionPath) => this._cb?.getEngine?.()?.getBridgeContextForSessionPath?.(sessionPath, { agentId: this.id }) || null,
+      listOpenSubagentThreads: (sessionPath) => this._cb?.getSubagentThreadStore?.()?.listOpenDirectBySession?.(sessionPath) || [],
     });
     this._terminalTool = createTerminalTool({
       getTerminalSessionManager: () => this._cb?.getTerminalSessionManager?.(),
@@ -474,7 +483,7 @@ export class Agent {
     });
 
     // 11. subagent 工具
-    this._subagentTool = createSubagentTool({
+    const subagentToolDeps = {
       executeIsolated: (prompt, opts) => {
         if (!this._cb?.executeIsolated) throw new Error("subagent 调用失败：engine 未初始化");
         return this._cb.executeIsolated(prompt, opts);
@@ -483,7 +492,6 @@ export class Agent {
       getDeferredStore: () => this._cb?.getDeferredResults?.(),
       getSubagentRunStore: () => this._cb?.getSubagentRunStore?.(),
       getSubagentThreadStore: () => this._cb?.getSubagentThreadStore?.(),
-      getReusableSubagentStore: () => this._cb?.getReusableSubagentStore?.(),
       getActivityHub: () => this._cb?.getActivityHub?.(),
       getTaskRegistry: () => this._cb?.getTaskRegistry?.(),
       setSubagentController: (id, ctrl) => this._cb?.setSubagentController?.(id, ctrl),
@@ -500,7 +508,10 @@ export class Agent {
       agentDir: this.agentDir,
       emitEvent: (event, sp) => this._cb?.emitEvent?.(event, sp),
       persistSubagentSessionMeta: (sessionPath, meta) => writeSubagentSessionMeta(sessionPath, meta),
-    });
+    };
+    this._subagentTool = createSubagentTool(subagentToolDeps);
+    this._subagentReplyTool = createSubagentReplyTool(subagentToolDeps);
+    this._subagentCloseTool = createSubagentCloseTool(subagentToolDeps);
 
     // 13. workflow 工具（per-agent 工具开关，默认关；纳入与否由 tools.disabled 决定）
     this._workflowTool = createWorkflowTool({
@@ -682,6 +693,8 @@ export class Agent {
       this._stopTaskTool,
       this._updateSettingsTool,
       this._subagentTool,
+      this._subagentReplyTool,
+      this._subagentCloseTool,
       this._workflowTool,
       this._checkDeferredTool,
       this._currentStatusTool,
@@ -947,7 +960,7 @@ export class Agent {
    * @param {object} [options]
    * @param {boolean} [options.forSubagent] - 为 subagent 构造的轻量 prompt：
    *   跳过记忆三段（规则 + pinned.md + memory.md）和团队 agent 名单。
-   *   Subagent 是一次性隔离任务，不需要长期记忆和多 agent 协作上下文。
+   *   Subagent 是隔离子会话，不注入长期记忆和多 agent 协作上下文。
    * @param {string} [options.cwdOverride] - 覆盖 prompt 中“工作台”章节展示的 cwd。
    *   用于新建隔离 session 时，让 prompt 快照和实际执行目录保持一致。
    */
@@ -1083,6 +1096,21 @@ export class Agent {
         "- Do not merely write file paths in text\n" +
         "- Do not decide platform-specific display or sending behavior in the Agent layer; consumers handle it"
     );
+
+    if (!forSubagent) {
+      parts.push(isZh
+        ? "\n## 子 Agent 协作\n\n" +
+          "subagent 会创建一个可继续的子 Agent 实例，并返回 threadId。label 只用于展示，access 只决定只读或可操作权限；二者都不作为续接身份。\n\n" +
+          "当任务可能已经有合适的子 Agent 实例时，先调用 current_status 获取 subagents，查看当前会话打开的 threadId、agent、label、权限和最近状态。\n\n" +
+          "继续同一个实例用 subagent_reply(threadId, task)。新方向或缺少合适实例时才用 subagent 创建新的实例。一个实例忙时会排队执行，不要用 label 猜测身份。\n\n" +
+          "如果实例不再有用，或需要腾出位置，调用 subagent_close(threadId) 关闭。没有可用位置时，由你根据任务相关性和最近状态决定关闭哪个实例。workflow 里的 agent() 是一次性节点，不参与这里的可继续实例池。"
+        : "\n## Subagent Collaboration\n\n" +
+          "subagent creates a continuable sub-agent instance and returns a threadId. label is display-only, and access only chooses read-only or writable permissions; neither is the resume identity.\n\n" +
+          "When the task may already have a suitable sub-agent instance, call current_status with the subagents key first. It shows the open threadId, agent, label, access, and recent status for this session.\n\n" +
+          "Continue the same instance with subagent_reply(threadId, task). Create a new instance with subagent only for a new direction or when no suitable instance exists. If an instance is busy, replies queue; do not infer identity from label.\n\n" +
+          "When an instance is no longer useful, or you need room, close it with subagent_close(threadId). If there is no available slot, decide which instance to close from task relevance and recent status. workflow agent() nodes are one-shot and do not join this continuable instance pool."
+      );
+    }
 
     if (this._isComputerUseAvailableForThisAgent()) {
       parts.push(isZh

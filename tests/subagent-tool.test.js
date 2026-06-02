@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { createSubagentTool, composeReuseKey } from "../lib/tools/subagent-tool.js";
-import { ReusableSubagentStore } from "../lib/reusable-subagent-store.js";
+import {
+  createSubagentCloseTool,
+  createSubagentReplyTool,
+  createSubagentTool,
+} from "../lib/tools/subagent-tool.js";
+import { SubagentThreadStore } from "../lib/subagent-thread-store.js";
 
 // ---- helpers ----------------------------------------------------------------
 
@@ -29,6 +33,13 @@ function makeExecuteIsolated(
 }
 
 function makeDeps(overrides = {}) {
+  const threadStore = {
+    beginRun: vi.fn(),
+    attachSession: vi.fn(),
+    finishRun: vi.fn(),
+    runSerialized: vi.fn((_threadId, taskFn) => taskFn()),
+    isBusy: vi.fn(() => false),
+  };
   return {
     executeIsolated: makeExecuteIsolated(),
     resolveUtilityModel: () => "utility-model",
@@ -49,6 +60,7 @@ function makeDeps(overrides = {}) {
     emitEvent: vi.fn(),
     persistSubagentSessionMeta: vi.fn(async () => {}),
     getSubagentRunStore: () => null,
+    getSubagentThreadStore: () => threadStore,
     ...overrides,
   };
 }
@@ -98,7 +110,7 @@ describe("subagent-tool (executeIsolated 原子模式)", () => {
     );
   });
 
-  it("不带 instance 也登记 ephemeral thread，并把 run 关联到 threadId", async () => {
+  it("不带 instance 也登记 direct instance，并把 run 关联到 threadId", async () => {
     const threadStore = {
       beginRun: vi.fn(),
       attachSession: vi.fn(),
@@ -121,16 +133,16 @@ describe("subagent-tool (executeIsolated 原子模式)", () => {
     const taskId = result.details.taskId;
 
     expect(result.details.threadId).toBe(taskId);
-    expect(result.details.threadKind).toBe("ephemeral");
+    expect(result.details.threadKind).toBe("direct");
     expect(threadStore.beginRun).toHaveBeenCalledWith(taskId, expect.objectContaining({
-      kind: "ephemeral",
+      kind: "direct",
       parentSessionPath: "/test/session.jsonl",
       agentId: "other-agent",
       summary: "读代码",
     }));
     expect(runStore.register).toHaveBeenCalledWith(taskId, expect.objectContaining({
       threadId: taskId,
-      threadKind: "ephemeral",
+      threadKind: "direct",
     }));
 
     await vi.waitFor(() => {
@@ -139,7 +151,7 @@ describe("subagent-tool (executeIsolated 原子模式)", () => {
       }));
       expect(threadStore.finishRun).toHaveBeenCalledWith(taskId, expect.objectContaining({
         status: "resolved",
-        close: true,
+        close: false,
       }));
     });
   });
@@ -713,8 +725,8 @@ describe("subagent-tool (executeIsolated 原子模式)", () => {
     );
   });
 
-  // 10. sync fallback when deferred store is unavailable
-  it("falls back to sync execution when deferred store is unavailable", async () => {
+  // 10. direct instances require durable parent-session infrastructure
+  it("returns an explicit error instead of sync fallback when deferred store is unavailable", async () => {
     const syncExecute = makeExecuteIsolated({ replyText: "sync result", error: null, sessionPath: null });
     const tool = createSubagentTool(makeDeps({
       executeIsolated: syncExecute,
@@ -724,9 +736,23 @@ describe("subagent-tool (executeIsolated 原子模式)", () => {
 
     const result = await tool.execute("call_1", { task: "同步任务" });
 
-    // sync fallback returns the reply text directly (no details / streamStatus)
-    expect(result.content[0].text).toBe("sync result");
-    expect(result.details).toBeUndefined();
+    expect(result.content[0].text).toBeTruthy();
+    expect(result.details.errorCode).toBe("SUBAGENT_PARENT_SESSION_REQUIRED");
+    expect(syncExecute).not.toHaveBeenCalled();
+  });
+
+  it("returns an explicit error when the thread store is unavailable", async () => {
+    const syncExecute = makeExecuteIsolated({ replyText: "sync result", error: null, sessionPath: null });
+    const tool = createSubagentTool(makeDeps({
+      executeIsolated: syncExecute,
+      getSubagentThreadStore: () => null,
+    }));
+
+    const result = await tool.execute("call_1", { task: "缺少线程账本" }, null, null, mockCtx());
+
+    expect(result.content[0].text).toBeTruthy();
+    expect(result.details.errorCode).toBe("SUBAGENT_PARENT_SESSION_REQUIRED");
+    expect(syncExecute).not.toHaveBeenCalled();
   });
 });
 
@@ -807,162 +833,253 @@ describe("subagent-tool 权限档（Codex 式：access 参数 + 继承父会话�
   });
 });
 
-describe("subagent-tool 复用模式 (instance)", () => {
+describe("subagent-tool direct instance lifecycle", () => {
   let mockStore;
   beforeEach(() => {
-    mockStore = { defer: vi.fn(), resolve: vi.fn(), fail: vi.fn(), query: vi.fn(() => ({ meta: {} })), _save: vi.fn() };
+    mockStore = {
+      defer: vi.fn(),
+      resolve: vi.fn(),
+      fail: vi.fn(),
+      abort: vi.fn(),
+      query: vi.fn(() => ({ meta: {} })),
+      _save: vi.fn(),
+    };
   });
   afterEach(() => { vi.useRealTimers(); });
 
-  const REUSE_KEY = composeReuseKey("/test/session.jsonl", "other-agent", "探索");
-
-  it("首跑：persist 指向 reusable 目录、无 resumeSessionPath、subagentContext 仍剥离记忆、beginRun 落库", async () => {
-    const reuseStore = new ReusableSubagentStore();
-    const threadStore = { beginRun: vi.fn(), attachSession: vi.fn(), finishRun: vi.fn() };
+  it("新建 direct subagent 默认就是 open instance，label 只做展示，access 只决定权限", async () => {
+    const threadStore = new SubagentThreadStore();
     const capture = makeExecuteIsolated({ replyText: "ok", error: null, sessionPath: "/test/child.jsonl" });
     const tool = createSubagentTool(makeDeps({
       executeIsolated: capture,
       getDeferredStore: () => mockStore,
-      getReusableSubagentStore: () => reuseStore,
       getSubagentThreadStore: () => threadStore,
     }));
 
-    const res = await tool.execute("c1", { task: "探索任务", agent: "other-agent", instance: "探索" }, null, null, mockCtx());
-    expect(res.details.reuseInstance).toBe("探索");
+    const res = await tool.execute("c1", {
+      task: "探索任务",
+      agent: "other-agent",
+      label: "探索一",
+      access: "read",
+    }, null, null, mockCtx());
+    expect(res.details.label).toBe("探索一");
+    expect(res.details.reuseInstance).toBeUndefined();
+    expect(res.details.threadId).toBe(res.details.taskId);
+    expect(res.details.threadKind).toBe("direct");
 
     await vi.waitFor(() => expect(capture).toHaveBeenCalledTimes(1));
     const opts = capture.mock.calls[0][1];
-    expect(opts.persist).toMatch(/subagent-sessions[/\\]reusable$/);
-    expect(opts.resumeSessionPath).toBeUndefined(); // 首跑无历史
-    expect(opts.subagentContext).toBe(true); // 复用不改记忆档位（forSubagent 剥离记忆三段）
-
-    await vi.waitFor(() => {
-      const rec = reuseStore.get(REUSE_KEY);
-      expect(rec?.childSessionPath).toBe("/test/child.jsonl");
-      expect(rec?.runCount).toBe(1);
-    });
-    const threadId = `reusable::${REUSE_KEY}`;
-    expect(res.details.threadId).toBe(threadId);
-    expect(res.details.threadKind).toBe("reusable");
-    expect(threadStore.beginRun).toHaveBeenCalledWith(threadId, expect.objectContaining({
-      kind: "reusable",
-      reuseKey: REUSE_KEY,
-      instance: "探索",
-    }));
-    await vi.waitFor(() => {
-      expect(threadStore.finishRun).toHaveBeenCalledWith(threadId, expect.objectContaining({
-        status: "resolved",
-        close: false,
-      }));
-    });
-  });
-
-  it("二跑：resume 上次的 childSessionPath（续接历史），runCount 累加到 2", async () => {
-    const reuseStore = new ReusableSubagentStore();
-    const capture = makeExecuteIsolated({ replyText: "ok", error: null, sessionPath: "/test/child.jsonl" });
-    const tool = createSubagentTool(makeDeps({
-      executeIsolated: capture,
-      getDeferredStore: () => mockStore,
-      getReusableSubagentStore: () => reuseStore,
-    }));
-
-    await tool.execute("c1", { task: "第一次", agent: "other-agent", instance: "探索" }, null, null, mockCtx());
-    await vi.waitFor(() => expect(reuseStore.get(REUSE_KEY)?.childSessionPath).toBe("/test/child.jsonl"));
-
-    await tool.execute("c2", { task: "第二次", agent: "other-agent", instance: "探索" }, null, null, mockCtx());
-    await vi.waitFor(() => {
-      expect(capture).toHaveBeenCalledTimes(2);
-      expect(capture.mock.calls[1][1].resumeSessionPath).toBe("/test/child.jsonl");
-    });
-    expect(reuseStore.get(REUSE_KEY)?.runCount).toBe(2);
-  });
-
-  it("不同后缀 = 独立实例（独立 reuseKey，各自 runCount=1）", async () => {
-    const reuseStore = new ReusableSubagentStore();
-    const tool = createSubagentTool(makeDeps({
-      getDeferredStore: () => mockStore,
-      getReusableSubagentStore: () => reuseStore,
-    }));
-
-    await tool.execute("c1", { task: "探索", agent: "other-agent", instance: "探索" }, null, null, mockCtx());
-    await tool.execute("c2", { task: "下笔", agent: "other-agent", instance: "下笔" }, null, null, mockCtx());
-
-    await vi.waitFor(() => {
-      expect(reuseStore.get(composeReuseKey("/test/session.jsonl", "other-agent", "探索"))?.runCount).toBe(1);
-      expect(reuseStore.get(composeReuseKey("/test/session.jsonl", "other-agent", "下笔"))?.runCount).toBe(1);
-    });
-    expect(reuseStore.size).toBe(2);
-  });
-
-  it("per-session 隔离：同 agent+后缀，不同对话 = 不同实例（B 不续 A 的历史）", async () => {
-    const reuseStore = new ReusableSubagentStore();
-    const capture = makeExecuteIsolated({ replyText: "ok", error: null, sessionPath: "/test/child.jsonl" });
-    const tool = createSubagentTool(makeDeps({
-      executeIsolated: capture,
-      getDeferredStore: () => mockStore,
-      getReusableSubagentStore: () => reuseStore,
-    }));
-
-    // 对话 A 首跑「other-agent·探索」→ 落库到 A 的 reuseKey
-    await tool.execute("c1", { task: "t", agent: "other-agent", instance: "探索" }, null, null, mockCtx("/session/a.jsonl"));
-    await vi.waitFor(() =>
-      expect(reuseStore.get(composeReuseKey("/session/a.jsonl", "other-agent", "探索"))?.childSessionPath).toBe("/test/child.jsonl"));
-
-    // 对话 B 派同 agent+后缀 → 不同 reuseKey，首跑无 resume（绝不串 A 的历史）
-    await tool.execute("c2", { task: "t", agent: "other-agent", instance: "探索" }, null, null, mockCtx("/session/b.jsonl"));
-    await vi.waitFor(() => expect(capture).toHaveBeenCalledTimes(2));
-    expect(capture.mock.calls[1][1].resumeSessionPath).toBeUndefined();
-
-    // 两个独立实例（A 与 B 各一）
-    expect(reuseStore.size).toBe(2);
-    expect(reuseStore.get(composeReuseKey("/session/b.jsonl", "other-agent", "探索"))).toBeTruthy();
-  });
-
-  it("不带 instance：维持一次性，persist 不进 reusable 子目录、不碰复用账本", async () => {
-    const reuseStore = new ReusableSubagentStore();
-    const capture = makeExecuteIsolated({ replyText: "ok", error: null, sessionPath: "/test/child.jsonl" });
-    const tool = createSubagentTool(makeDeps({
-      executeIsolated: capture,
-      getDeferredStore: () => mockStore,
-      getReusableSubagentStore: () => reuseStore,
-    }));
-
-    await tool.execute("c1", { task: "一次性", agent: "other-agent" }, null, null, mockCtx());
-    await vi.waitFor(() => expect(capture).toHaveBeenCalledTimes(1));
-    const opts = capture.mock.calls[0][1];
-    expect(opts.persist).toMatch(/subagent-sessions$/); // 非 reusable 子目录
+    expect(opts.persist).toMatch(/subagent-sessions[/\\]direct$/);
     expect(opts.resumeSessionPath).toBeUndefined();
-    expect(reuseStore.size).toBe(0); // 完全没碰复用账本
+    expect(opts.permissionMode).toBe("read_only");
+    expect(opts.subagentContext).toBe(true);
+
+    await vi.waitFor(() => {
+      expect(threadStore.get(res.details.threadId)).toMatchObject({
+        kind: "direct",
+        status: "open",
+        lastRunStatus: "resolved",
+        parentSessionPath: "/test/session.jsonl",
+        agentId: "other-agent",
+        agentName: "Other",
+        childSessionPath: "/test/child.jsonl",
+        label: "探索一",
+        access: "read",
+        summary: "ok",
+        runCount: 1,
+      });
+    });
   });
 
-  it("同实例并发：串行排队，第二次派单返回「已排队」反馈、executeIsolated 不并发", async () => {
-    const reuseStore = new ReusableSubagentStore();
+  it("legacy instance 参数只映射为 label，不再作为复用开关或 reuseKey", async () => {
+    const threadStore = new SubagentThreadStore();
+    const capture = makeExecuteIsolated({ replyText: "ok", error: null, sessionPath: "/test/child.jsonl" });
+    const tool = createSubagentTool(makeDeps({
+      executeIsolated: capture,
+      getDeferredStore: () => mockStore,
+      getSubagentThreadStore: () => threadStore,
+    }));
+
+    const first = await tool.execute("c1", {
+      task: "第一次",
+      agent: "other-agent",
+      instance: "探索",
+    }, null, null, mockCtx());
+    const second = await tool.execute("c2", {
+      task: "第二次",
+      agent: "other-agent",
+      instance: "探索",
+    }, null, null, mockCtx());
+
+    await vi.waitFor(() => expect(capture).toHaveBeenCalledTimes(2));
+    expect(first.details.threadId).not.toBe(second.details.threadId);
+    expect(first.details.label).toBe("探索");
+    expect(second.details.label).toBe("探索");
+    expect(capture.mock.calls[1][1].resumeSessionPath).toBeUndefined();
+    expect(threadStore.listOpenDirectBySession("/test/session.jsonl")).toHaveLength(2);
+  });
+
+  it("subagent_reply 用 threadId 续接已有 direct instance，并生成新的 taskId", async () => {
+    const threadStore = new SubagentThreadStore();
+    const capture = makeExecuteIsolated({ replyText: "continued", error: null, sessionPath: "/test/child.jsonl" });
+    threadStore.beginRun("subagent-thread-1", {
+      kind: "direct",
+      parentSessionPath: "/test/session.jsonl",
+      agentId: "other-agent",
+      agentName: "Other",
+      label: "探索一",
+      access: "read",
+    });
+    threadStore.attachSession("subagent-thread-1", "/test/child.jsonl");
+    threadStore.finishRun("subagent-thread-1", {
+      status: "resolved",
+      summary: "之前读过生命周期",
+      close: false,
+    });
+
+    const replyTool = createSubagentReplyTool(makeDeps({
+      executeIsolated: capture,
+      getDeferredStore: () => mockStore,
+      getSubagentThreadStore: () => threadStore,
+    }));
+
+    const res = await replyTool.execute("c1", {
+      threadId: "subagent-thread-1",
+      task: "继续刚才的方向",
+    }, null, null, mockCtx());
+
+    expect(res.details.taskId).toMatch(/^subagent-/);
+    expect(res.details.threadId).toBe("subagent-thread-1");
+    expect(res.details.threadKind).toBe("direct");
+    expect(res.details.label).toBe("探索一");
+
+    await vi.waitFor(() => expect(capture).toHaveBeenCalledTimes(1));
+    const opts = capture.mock.calls[0][1];
+    expect(opts.agentId).toBe("other-agent");
+    expect(opts.resumeSessionPath).toBe("/test/child.jsonl");
+    expect(opts.persist).toMatch(/subagent-sessions[/\\]direct$/);
+    expect(opts.permissionMode).toBe("read_only");
+
+    await vi.waitFor(() => {
+      expect(threadStore.get("subagent-thread-1")).toMatchObject({
+        runCount: 2,
+        summary: "continued",
+        status: "open",
+        lastRunStatus: "resolved",
+      });
+    });
+  });
+
+  it("subagent_reply 拒绝关闭的、跨父会话的或 workflow 节点线程", async () => {
+    const threadStore = new SubagentThreadStore();
+    threadStore.beginRun("closed", { kind: "direct", parentSessionPath: "/test/session.jsonl" });
+    threadStore.closeDirectThread("closed", { summary: "done" });
+    threadStore.beginRun("other-session", { kind: "direct", parentSessionPath: "/other/session.jsonl" });
+    threadStore.beginRun("workflow-1::node-1", { kind: "workflow_node", parentSessionPath: "/test/session.jsonl" });
+
+    const capture = makeExecuteIsolated();
+    const replyTool = createSubagentReplyTool(makeDeps({
+      executeIsolated: capture,
+      getDeferredStore: () => mockStore,
+      getSubagentThreadStore: () => threadStore,
+    }));
+
+    await expect(replyTool.execute("c1", { threadId: "closed", task: "x" }, null, null, mockCtx()))
+      .resolves.toMatchObject({ details: expect.objectContaining({ errorCode: "SUBAGENT_THREAD_NOT_OPEN" }) });
+    await expect(replyTool.execute("c2", { threadId: "other-session", task: "x" }, null, null, mockCtx()))
+      .resolves.toMatchObject({ details: expect.objectContaining({ errorCode: "SUBAGENT_THREAD_NOT_IN_SESSION" }) });
+    await expect(replyTool.execute("c3", { threadId: "workflow-1::node-1", task: "x" }, null, null, mockCtx()))
+      .resolves.toMatchObject({ details: expect.objectContaining({ errorCode: "SUBAGENT_THREAD_NOT_DIRECT" }) });
+    expect(capture).not.toHaveBeenCalled();
+  });
+
+  it("subagent_close 关闭当前父会话里的 direct instance", async () => {
+    const threadStore = new SubagentThreadStore();
+    threadStore.beginRun("subagent-thread-1", {
+      kind: "direct",
+      parentSessionPath: "/test/session.jsonl",
+      agentId: "other-agent",
+      label: "探索一",
+      access: "read",
+    });
+    const closeTool = createSubagentCloseTool(makeDeps({
+      getDeferredStore: () => mockStore,
+      getSubagentThreadStore: () => threadStore,
+    }));
+
+    const res = await closeTool.execute("c1", {
+      threadId: "subagent-thread-1",
+      reason: "探索阶段结束",
+    }, null, null, mockCtx());
+
+    expect(res.details).toMatchObject({
+      threadId: "subagent-thread-1",
+      streamStatus: "closed",
+    });
+    expect(threadStore.get("subagent-thread-1")).toMatchObject({
+      status: "closed",
+      summary: "探索阶段结束",
+    });
+  });
+
+  it("同一 direct instance 并发 reply 串行排队，另一个 direct instance 不被阻塞", async () => {
+    const threadStore = new SubagentThreadStore();
+    threadStore.beginRun("thread-a", { kind: "direct", parentSessionPath: "/test/session.jsonl", agentId: "other-agent", access: "write" });
+    threadStore.attachSession("thread-a", "/test/a.jsonl");
+    threadStore.finishRun("thread-a", { status: "resolved", summary: "a ready", close: false });
+    threadStore.beginRun("thread-b", { kind: "direct", parentSessionPath: "/test/session.jsonl", agentId: "other-agent", access: "write" });
+    threadStore.attachSession("thread-b", "/test/b.jsonl");
+    threadStore.finishRun("thread-b", { status: "resolved", summary: "b ready", close: false });
+
     const pending = [];
     const blockingExecute = vi.fn().mockImplementation((_p, opts) => {
-      opts?.onSessionReady?.("/test/child.jsonl");
+      opts?.onSessionReady?.(opts.resumeSessionPath);
       return new Promise((resolve) => pending.push(resolve));
     });
-    const tool = createSubagentTool(makeDeps({
+    const replyTool = createSubagentReplyTool(makeDeps({
       executeIsolated: blockingExecute,
       getDeferredStore: () => mockStore,
-      getReusableSubagentStore: () => reuseStore,
+      getSubagentThreadStore: () => threadStore,
     }));
 
-    const r1 = await tool.execute("c1", { task: "t1", agent: "other-agent", instance: "探索" }, null, null, mockCtx());
-    expect(r1.details.streamStatus).toBe("running");
+    const r1 = await replyTool.execute("c1", { threadId: "thread-a", task: "a1" }, null, null, mockCtx());
     await vi.waitFor(() => expect(blockingExecute).toHaveBeenCalledTimes(1));
+    const r2 = await replyTool.execute("c2", { threadId: "thread-a", task: "a2" }, null, null, mockCtx());
+    const r3 = await replyTool.execute("c3", { threadId: "thread-b", task: "b1" }, null, null, mockCtx());
 
-    const r2 = await tool.execute("c2", { task: "t2", agent: "other-agent", instance: "探索" }, null, null, mockCtx());
-    expect(r2.content[0].text).toMatch(/subagentReuseQueued|排队|queued|busy/);
+    expect(r1.details.threadId).toBe("thread-a");
+    expect(r2.content[0].text).toMatch(/queued|排队|subagentThreadQueued/);
+    expect(r3.details.threadId).toBe("thread-b");
+    await vi.waitFor(() => expect(blockingExecute).toHaveBeenCalledTimes(2)); // a1 + b1，a2 未开始
 
-    // 串行：第一个未结束前，第二个不开始
-    await new Promise((r) => setTimeout(r, 0));
-    expect(blockingExecute).toHaveBeenCalledTimes(1);
+    pending[0]({ replyText: "a1 done", error: null, sessionPath: "/test/a.jsonl" });
+    await vi.waitFor(() => expect(blockingExecute).toHaveBeenCalledTimes(3));
+    pending.forEach((resolve) => resolve({ replyText: "done", error: null, sessionPath: null }));
+  });
 
-    // 放行第一个 → 第二个才开始
-    pending[0]({ replyText: "ok", error: null, sessionPath: "/test/child.jsonl" });
-    await vi.waitFor(() => expect(blockingExecute).toHaveBeenCalledTimes(2));
+  it("current_status provider can expose open direct instances for the current session", async () => {
+    const threadStore = new SubagentThreadStore();
+    threadStore.beginRun("thread-a", {
+      kind: "direct",
+      parentSessionPath: "/test/session.jsonl",
+      agentId: "other-agent",
+      agentName: "Other",
+      label: "探索一",
+      access: "read",
+      summary: "读完生命周期代码",
+    });
+    threadStore.finishRun("thread-a", { status: "resolved", summary: "读完生命周期代码", close: false });
+    const statusTool = makeDeps({
+      getSubagentThreadStore: () => threadStore,
+    });
 
-    pending.forEach((res) => res({ replyText: "ok", error: null, sessionPath: null }));
+    expect(statusTool.getSubagentThreadStore().listOpenDirectBySession("/test/session.jsonl")).toEqual([
+      expect.objectContaining({
+        threadId: "thread-a",
+        agentName: "Other",
+        label: "探索一",
+        access: "read",
+      }),
+    ]);
   });
 });
