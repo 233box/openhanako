@@ -2598,37 +2598,48 @@ async function handleBrowserCommand(cmd, params) {
       const searchOptions = { locale };
       const searchUrl = buildBrowserSearchUrl(provider, query, maxResults, searchOptions);
       const loadOptions = buildBrowserSearchLoadOptions(provider, searchOptions);
-      const ses = session.fromPartition("hana-search");
-      const view = new WebContentsView({
+      // 使用默认 session 携带已有 cookies（避免百度验证码）
+      const ses = session.fromPartition("persist:hana-browser");
+
+      // 使用隐藏 BrowserWindow
+      const searchWin = new BrowserWindow({
+        show: false,
+        width: 1,
+        height: 1,
         webPreferences: {
           session: ses,
           contextIsolation: true,
           nodeIntegration: false,
-          sandbox: true,
+          sandbox: false,
         },
       });
-      view.webContents.setAudioMuted(true);
-      if (loadOptions.userAgent) view.webContents.setUserAgent(loadOptions.userAgent);
-      view.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+      const wc = searchWin.webContents;
+      // 使用 Electron 实际 Chrome 版本的 User-Agent
+      const realUA = wc.getUserAgent();
+      wc.setUserAgent(realUA);
+      wc.setWindowOpenHandler(() => ({ action: "deny" }));
 
       try {
         const NAV_TIMEOUT = 30000;
         await Promise.race([
-          view.webContents.loadURL(searchUrl, loadOptions.extraHeaders
+          wc.loadURL(searchUrl, loadOptions.extraHeaders
             ? { extraHeaders: loadOptions.extraHeaders }
             : undefined),
           new Promise((_, reject) => setTimeout(() => {
-            try { view.webContents.stop(); } catch {}
+            try { wc.stop(); } catch {}
             reject(new Error(`Search navigation timed out after ${NAV_TIMEOUT / 1000}s: ${searchUrl}`));
           }, NAV_TIMEOUT)),
         ]);
-        const wait = await waitForBrowserState(view.webContents, {
+        const wait = await waitForBrowserState(wc, {
           state: params.state || "stable",
           timeoutMs: Math.min(Number(params.timeout) || 5000, 10000),
         });
-        const extracted = await view.webContents.executeJavaScript(
-          buildBrowserSearchExtractionScript(provider, maxResults),
-        );
+        // 提取搜索结果
+        const extracted = provider === "baidu_browser"
+          ? await wc.executeJavaScript(`(function(){var items=document.querySelectorAll('div.result.c-container,div.result-op.c-container');var results=[];for(var i=0;i<items.length;i++){var item=items[i];var a=item.querySelector('h3 a');var h3=item.querySelector('h3');if(!a||!h3)continue;var t=(h3.innerText||h3.textContent||'').replace(/\\s+/g,' ').trim();if(!t)continue;results.push({title:t,url:a.href,content:'',rank:results.length+1,score:null,metadata:{display_url:'',engine:'baidu'}})}return{title:document.title||'',final_url:location.href,status:'ok',blocked:false,captcha:false,reason:'',results:results.slice(0,${maxResults})}})()`).catch(e => ({ error: e.message, results: [] }))
+          : await wc.executeJavaScript(
+              buildBrowserSearchExtractionScript(provider, maxResults),
+            ).catch(e => ({ error: e.message, results: [] }));
         return {
           query,
           provider,
@@ -2636,18 +2647,18 @@ async function handleBrowserCommand(cmd, params) {
           results: extracted.results || [],
           diagnostics: {
             search_url: searchUrl,
-            final_url: extracted.final_url || view.webContents.getURL(),
-            page_title: extracted.title || view.webContents.getTitle(),
+            final_url: extracted.final_url || wc.getURL(),
+            page_title: extracted.title || wc.getTitle(),
             status: extracted.status || "",
             blocked: !!extracted.blocked,
             captcha: !!extracted.captcha,
-            reason: extracted.reason || "",
+            reason: extracted.reason || extracted.error || "",
             elapsed_ms: Date.now() - started,
             wait,
           },
         };
       } finally {
-        try { view.webContents.close(); } catch {}
+        try { searchWin.close(); } catch {}
       }
     }
 

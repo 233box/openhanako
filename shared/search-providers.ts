@@ -10,6 +10,7 @@ export const BROWSER_SEARCH_PROVIDER_IDS = Object.freeze([
   "bing_browser",
   "google_browser",
   "duckduckgo_browser",
+  "baidu_browser",
 ] as const);
 
 const SEARCH_API_PROVIDER_SET = new Set<string>(SEARCH_API_PROVIDER_IDS);

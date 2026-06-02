@@ -255,6 +255,7 @@ export function OtherModelsSection({ providers }: { providers: Record<string, { 
               { value: 'bing_browser', label: 'Bing (Browser)' },
               { value: 'google_browser', label: 'Google (Browser)' },
               { value: 'duckduckgo_browser', label: 'DuckDuckGo (Browser)' },
+              { value: 'baidu_browser', label: 'Baidu (Browser)' },
               { value: 'tavily', label: 'Tavily' },
               { value: 'brave', label: 'Brave Search' },
               { value: 'serper', label: 'Serper (Google)' },
