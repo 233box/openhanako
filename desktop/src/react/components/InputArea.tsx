@@ -1564,6 +1564,17 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
       clearAttachedFiles();
       if (useStore.getState().quotedSelections.length > 0) useStore.getState().clearQuotedSelections();
 
+      // 北京时间前缀 [YYYY-MM-DD HH:MM]
+      const now = new Date();
+      const beijing = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Shanghai" }));
+      const y = beijing.getFullYear();
+      const mo = String(beijing.getMonth() + 1).padStart(2, "0");
+      const d = String(beijing.getDate()).padStart(2, "0");
+      const hh = String(beijing.getHours()).padStart(2, "0");
+      const mm = String(beijing.getMinutes()).padStart(2, "0");
+      const timePrefix = `[${y}-${mo}-${d} ${hh}:${mm}] `;
+      finalText = timePrefix + finalText;
+
       const ws = getWebSocket();
       const wsMsg: Record<string, unknown> = {
         type,
@@ -1571,7 +1582,7 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
         sessionPath: sessionPathForSend,
         uiContext: collectUiContext(useStore.getState()),
         displayMessage: {
-          text,
+          text: timePrefix + text,
           skills: skills.length > 0 ? skills : undefined,
           quotedText: quotes.length > 0 ? quotes.map(q => q.text).join('\n\n') : undefined,
           attachments: allFiles.length > 0 ? allFiles.map(f => {
