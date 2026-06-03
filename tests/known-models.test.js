@@ -140,13 +140,11 @@ describe("known-models dictionary", () => {
     });
   });
 
-  it("declares Xiaomi MiMo V2.5 series with official multimodal and TTS limits", () => {
+  it("declares Xiaomi MiMo V2.5 series with Pro text-only and Omni full-modal limits", () => {
     expect(lookupKnown("mimo", "mimo-v2.5-pro")).toEqual({
       name: "MiMo V2.5 Pro",
       context: 1048576,
       maxOutput: 131072,
-      image: true,
-      video: true,
       reasoning: true,
     });
     expect(lookupKnown("mimo", "mimo-v2.5")).toEqual({

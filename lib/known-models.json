@@ -2996,8 +2996,6 @@
       "name": "MiMo V2.5 Pro",
       "context": 1048576,
       "maxOutput": 131072,
-      "image": true,
-      "video": true,
       "reasoning": true
     },
     "mimo-v2.5": {
