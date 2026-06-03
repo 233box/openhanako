@@ -897,11 +897,12 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    min-width: 0;
     font-size: 0.78rem;
     color: var(--tool-text);
     padding: 0.2rem 0;
     line-height: 1.5;
-    max-width: 400px;
+    max-width: 100%;
 }
 
 .toolGroupSingle .toolIndicator {
@@ -910,7 +911,11 @@
 }
 
 .toolDesc {
-    flex-shrink: 0;
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .toolDetail {
@@ -936,12 +941,18 @@
 }
 
 .toolTag {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 9rem;
     font-size: 0.68rem;
     color: var(--text-muted);
     background: var(--overlay-subtle);
     padding: 0.1rem 0.4rem;
     border-radius: 3px;
     font-family: var(--font-mono);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .toolDots {
@@ -1030,68 +1041,7 @@
     border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 
-/* ── 文件输出卡片 ── */
-
-.fileOutputCard {
-    display: flex;
-    align-items: center;
-    gap: var(--space-md);
-    min-width: 300px;
-    max-width: 420px;
-    margin: var(--space-sm) 0;
-    padding: 0.7rem 0.9rem;
-    background: var(--bg-card, var(--bg));
-    border: 1px solid var(--border, rgba(0,0,0,0.1));
-    border-radius: var(--radius-chat-card);
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
-    overflow: hidden;
-    transition: background var(--duration-fast), border-color var(--duration-fast);
-}
-
-.fileOutputPreviewable:hover {
-    border-color: var(--text-muted, rgba(0,0,0,0.2));
-}
-
-.fileOutputExpired {
-    border-style: dashed;
-    background: var(--overlay-subtle, rgba(0,0,0,0.03));
-    box-shadow: none;
-    opacity: 0.82;
-}
-
-.fileOutputIcon {
-    flex-shrink: 0;
-    width: 40px;
-    height: 40px;
-    color: var(--text-muted);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--overlay-subtle, rgba(0,0,0,0.03));
-    border-radius: var(--radius-chat-card);
-}
-
-.fileOutputInfo {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
-
-.fileOutputName {
-    font-size: 0.85rem;
-    font-weight: 500;
-    color: var(--text);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.fileOutputType {
-    font-size: 0.72rem;
-    color: var(--text-muted);
-}
+/* ── 文件输出卡片操作按钮 ── */
 
 .fileOutputActions {
     flex-shrink: 0;
@@ -1411,27 +1361,6 @@
     opacity: 0.9;
 }
 
-/* ── Skill 卡片（复用 legacy artifact 样式） ── */
-
-.skillCard {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-sm);
-    margin: var(--space-xs) 0;
-    padding: 0.55rem 0.85rem;
-    background: var(--tool-bg);
-    border: 1px solid var(--accent);
-    border-radius: var(--radius-chat-card);
-    max-width: 100%;
-    cursor: default;
-    transition: background var(--duration-fast), box-shadow var(--duration-fast);
-}
-
-.skillCard:hover {
-    background: var(--accent-light);
-    box-shadow: 0 2px 8px var(--shadow);
-}
-
 /* ── Session Panel ── */
 
 .sessionShell {
@@ -1709,48 +1638,10 @@
     display: block;
 }
 
-/* ── Subagent 实时卡片（对齐 cronConfirmCard 风格） ── */
+/* ── Subagent 资源卡片 ── */
 
-.subagentCard {
+.subagentResourceCard {
     --subagent-preview-height: 260px;
-    margin: var(--space-sm) 0;
-    background: var(--bg-card, #fff);
-    border-radius: var(--radius-chat-card);
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0, 0, 0, 0.04);
-    width: 420px;
-    max-width: 90%;
-    font-size: 0.82rem;
-    overflow: hidden;
-}
-
-.subagentCardHeader {
-    display: flex;
-    align-items: stretch;
-    transition: background var(--duration-fast) ease;
-}
-
-.subagentCardHeader:hover {
-    background: rgba(0, 0, 0, 0.02);
-}
-
-.subagentCardButton {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 12px;
-    background: none;
-    border: none;
-    color: inherit;
-    font: inherit;
-    text-align: left;
-    cursor: default;
-    min-width: 0;
-}
-
-.subagentCardButton:focus-visible {
-    outline: 1px solid rgba(0, 0, 0, 0.18);
-    outline-offset: -1px;
 }
 
 .subagent-running .subagentAvatar {
@@ -1759,32 +1650,8 @@
     animation: hana-pulse 2s ease-in-out infinite;
 }
 
-.subagentStatus {
-    font-weight: normal;
-    font-size: 0.75rem;
-    margin-left: 6px;
-    color: var(--text-muted);
-}
-
-/* 复用实例后缀（如 毛毛·探索）：紧贴名字、低对比度，作身份标注而非状态 */
-.subagentInstance {
-    font-weight: normal;
-    font-size: 0.78rem;
-    margin-left: 5px;
-    color: var(--text-muted);
-}
-
-.subagent-done .subagentStatus {
-    color: #7a9e7a;
-}
-
-.subagent-failed .subagentStatus {
-    color: #a67272;
-}
-
 .subagentAbortBtn {
     align-self: center;
-    margin-right: 8px;
     background: transparent;
     border: none;
     color: var(--text-muted);
@@ -1797,7 +1664,7 @@
     transition: opacity var(--duration-fast);
 }
 
-.subagentCardHeader:hover .subagentAbortBtn {
+.subagentResourceCard:hover .subagentAbortBtn {
     opacity: 1;
 }
 
@@ -1806,70 +1673,17 @@
     background: transparent;
 }
 
-.subagent-aborted .subagentStatus {
-    color: var(--text-muted);
-}
-
 .subagentAvatar {
-    width: 28px;
-    height: 28px;
+    width: 32px;
+    height: 32px;
     border-radius: 50%;
     flex-shrink: 0;
     object-fit: cover;
-}
-
-.subagentBody {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-}
-
-.subagentName {
-    font-weight: 600;
-    color: var(--text);
-    margin-bottom: 2px;
-}
-
-.subagentDisplay {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--overlay-subtle, rgba(0,0,0,0.03));
     color: var(--text-muted);
-    font-size: 0.75rem;
-    line-height: 1.3;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-}
-
-.subagentPreviewWrap {
-    max-height: 0;
-    overflow: hidden;
-    transition: max-height var(--duration-fast) cubic-bezier(0.33, 1, 0.68, 1);
-    border-top: 1px solid transparent;
-}
-
-.subagentPreviewWrapOpen {
-    max-height: calc(var(--subagent-preview-height) + 22px);
-    border-top-color: rgba(0, 0, 0, 0.06);
-}
-
-.subagentPreviewWrapClosing {
-    border-top-color: rgba(0, 0, 0, 0.06);
-}
-
-.subagentPreviewScroll {
-    height: var(--subagent-preview-height);
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    padding: 0 12px 0;
-    opacity: 0;
-    transform: translateY(-6px);
-    transition: padding var(--duration-fast) cubic-bezier(0.33, 1, 0.68, 1), opacity 140ms ease, transform var(--duration-fast) cubic-bezier(0.33, 1, 0.68, 1);
-}
-
-.subagentPreviewWrapOpen .subagentPreviewScroll,
-.subagentPreviewWrapClosing .subagentPreviewScroll {
-    padding: 10px 12px 12px;
-    opacity: 1;
-    transform: translateY(0);
 }
 
 .subagentPreviewTranscript {

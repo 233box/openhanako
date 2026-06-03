@@ -14,6 +14,8 @@ import { SettingsConfirmCard } from './SettingsConfirmCard';
 import { SettingsUpdateCard } from './SettingsUpdateCard';
 import { MessageActions } from './MessageActions';
 import { MessageFooterActions, formatMessageTime, type MessageFooterAction } from './MessageFooterActions';
+import { ChatResourceCard } from './ChatResourceCard';
+import { FileResourceIcon, SkillResourceIcon } from './ChatResourceIcons';
 import { BLOCK_RENDERERS } from './block-renderers';
 import { FileOutputActions } from './FileOutputActions';
 const lazyScreenshot = () => import('../../utils/screenshot').then(m => m.takeScreenshot);
@@ -515,28 +517,19 @@ const FileOutputCard = memo(function FileOutputCard({ fileId, filePath, label, e
     });
   };
 
-  const typeLabel = expired ? expiredLabel : (EXT_LABELS[ext] || ext.toUpperCase());
+  const typeLabel = EXT_LABELS[ext] || ext.toUpperCase();
 
   return (
-    <div
-      className={`${styles.fileOutputCard}${expired ? ` ${styles.fileOutputExpired}` : ` ${styles.fileOutputPreviewable}`}`}
-      onClick={handlePreview}
-      style={{ cursor: expired ? 'default' : 'pointer' }}
-      aria-disabled={expired}
-    >
-      <div className={styles.fileOutputIcon}>
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-          <polyline points="14 2 14 8 20 8" />
-        </svg>
-      </div>
-      <div className={styles.fileOutputInfo}>
-        <div className={styles.fileOutputName}>{displayName}</div>
-        <div className={styles.fileOutputType}>
-          {typeLabel}{!expired && ext ? ` \u00b7 ${ext.toUpperCase()}` : ''}
-        </div>
-      </div>
-      {!expired && (
+    <ChatResourceCard
+      icon={<FileResourceIcon />}
+      title={displayName}
+      subtitle={ext ? `${typeLabel} \u00b7 ${ext.toUpperCase()}` : typeLabel}
+      statusLabel={expired ? expiredLabel : undefined}
+      statusTone={expired ? 'muted' : 'neutral'}
+      disabled={expired}
+      onClick={expired ? undefined : handlePreview}
+      ariaLabel={displayName}
+      actionSlot={!expired && (
         <FileOutputActions
           filePath={filePath}
           displayName={displayName}
@@ -544,7 +537,7 @@ const FileOutputCard = memo(function FileOutputCard({ fileId, filePath, label, e
           downloadName={displayName}
         />
       )}
-    </div>
+    />
   );
 });
 
@@ -681,14 +674,13 @@ const SkillBlock = memo(function SkillBlock({ block }: { block: any }) {
     ? block.installedSkillSource.filePath
     : (typeof block.skillFilePath === 'string' ? block.skillFilePath : '');
   return (
-    <div className={styles.skillCard} onClick={() => openSkillPreview(block.skillName, skillFilePath, block.installedSkillSource)} style={{ cursor: 'default' }}>
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M12 2L2 7l10 5 10-5-10-5z" />
-        <path d="M2 17l10 5 10-5" />
-        <path d="M2 12l10 5 10-5" />
-      </svg>
-      <span>{block.skillName}</span>
-    </div>
+    <ChatResourceCard
+      icon={<SkillResourceIcon />}
+      title={block.skillName}
+      subtitle="Skill"
+      onClick={() => openSkillPreview(block.skillName, skillFilePath, block.installedSkillSource)}
+      ariaLabel={block.skillName}
+    />
   );
 });
 

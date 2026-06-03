@@ -42,11 +42,4 @@ describe('MessageActions layout', () => {
     expect(block).toMatch(/background:\s*rgba\(var\(--accent-rgb\),\s*0\.16\)/);
   });
 
-  it('renders file output cards as block-level rows instead of inline siblings', () => {
-    const css = readChatCss();
-    const block = css.match(/\.fileOutputCard\s*\{(?<body>[^}]*)\}/)?.groups?.body || '';
-
-    expect(block).toMatch(/display:\s*flex/);
-    expect(block).not.toMatch(/display:\s*inline-flex/);
-  });
 });
