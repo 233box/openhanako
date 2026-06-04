@@ -25,7 +25,7 @@ export const ThinkingBlock = memo(function ThinkingBlock({ content, sealed }: Pr
         )}
       </summary>
       <Collapse open={open && !!content}>
-        <div className={styles.thinkingBlockBody}>{content}</div>
+        <div className={styles.thinkingBlockBody} data-selectable="true">{content}</div>
       </Collapse>
     </details>
   );
