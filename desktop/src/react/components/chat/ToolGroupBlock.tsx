@@ -26,8 +26,8 @@ function getToolLabel(name: string, phase: string, agentName: string): string {
 }
 
 export const ToolGroupBlock = memo(function ToolGroupBlock({ tools: rawTools, collapsed: initialCollapsed, agentName = 'Hanako' }: Props) {
-  // subagent 有独立卡片，不在工具组里重复显示
-  const tools = rawTools.filter(t => t.name !== 'subagent');
+  // subagent / stage_files 有独立卡片，不在工具组里重复显示
+  const tools = rawTools.filter(t => t.name !== 'subagent' && t.name !== 'stage_files');
   const [collapsed, setCollapsed] = useState(initialCollapsed);
   useEffect(() => {
     setCollapsed(initialCollapsed);
