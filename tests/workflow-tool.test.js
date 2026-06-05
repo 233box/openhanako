@@ -317,4 +317,32 @@ describe("workflow tool", () => {
     releases.forEach((release) => release());
     await flush();
   });
+
+  it("脚本内 parallel/pipeline/log 通过 buildAgentEventHandler 生成 workflow_step 条目", async () => {
+    const store = makeStore();
+    const hubEntries = [];
+    const fakeHub = {
+      upsert: vi.fn((e) => { hubEntries.push({ ...e }); return e; }),
+      get: vi.fn(() => null),
+    };
+    const exec = vi.fn(async () => ({ replyText: "ok", error: null }));
+    const tool = createWorkflowTool({
+      executeIsolated: exec,
+      getAgentId: () => "a1",
+      emitEvent: () => {},
+      getDeferredStore: () => store,
+      getSubagentRunStore: () => makeRunStore(),
+      getActivityHub: () => fakeHub,
+    });
+    const script = `export const meta = { name: 'test', description: 't' }
+log("hello");
+await parallel([async () => await agent("a")]);
+return "done";`;
+    await tool.execute("c1", { script }, undefined, undefined, makeCtx());
+    await flush();
+    const stepEntries = hubEntries.filter((e) => e.kind === "workflow_step");
+    expect(stepEntries.length).toBeGreaterThanOrEqual(2); // log + parallel
+    expect(stepEntries.some((e) => e.stepKind === "log")).toBe(true);
+    expect(stepEntries.some((e) => e.stepKind === "parallel")).toBe(true);
+  });
 });
