@@ -37,6 +37,7 @@ import {
   createPromptSnapshotResourceLoader,
   normalizeSessionPromptSnapshot,
 } from "../core/session-prompt-snapshot.js";
+import { stripClosedInternalNarrationBlocks } from "../lib/text/internal-narration.js";
 
 function resolveAgentPhoneModel(engine, ctx, agentConfig, modelOverride) {
   if (!modelOverride) return ctx.resolveModel(agentConfig);
@@ -272,10 +273,8 @@ export async function runAgentSession(agentId, rounds, { engine, signal, session
     }
   }
 
-  // 7. 去掉 MOOD 块（backtick 和 XML 两种格式，一次过）
-  const text = capturedText
-    .replace(/```(?:mood|pulse|reflect)[\s\S]*?```\n*|<(?:mood|pulse|reflect)>[\s\S]*?<\/(?:mood|pulse|reflect)>\n*/gi, "")
-    .trim();
+  // 7. 去掉已闭合的内省块（backtick 和 XML 两种格式，一次过）。
+  const text = stripClosedInternalNarrationBlocks(capturedText);
 
   debugLog()?.log("agent-executor", `${agentId} done, ${text.length} chars captured`);
   return text;
@@ -508,9 +507,7 @@ export async function runAgentPhoneSession(agentId, rounds, {
     });
   }
 
-  const text = capturedText
-    .replace(/```(?:mood|pulse|reflect)[\s\S]*?```\n*|<(?:mood|pulse|reflect)>[\s\S]*?<\/(?:mood|pulse|reflect)>\n*/gi, "")
-    .trim();
+  const text = stripClosedInternalNarrationBlocks(capturedText);
 
   debugLog()?.log("agent-executor", `${agentId} phone done, ${text.length} chars captured`);
   if (returnDiagnostics) {

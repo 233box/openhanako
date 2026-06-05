@@ -42,7 +42,10 @@ import {
   DEEPSEEK_ROLEPLAY_REASONING_PATCH_EXPERIMENT_ID,
   getResolvedExperimentValue,
 } from "../lib/experiments/registry.js";
-import { normalizePlainDescription } from "../lib/text/internal-narration.js";
+import {
+  normalizePlainDescription,
+  stripClosedInternalNarrationBlocks,
+} from "../lib/text/internal-narration.js";
 import { prepareVisionInputForTextOnlyModel } from "./vision-prepare.js";
 import { prepareModelImageInputsForPrompt } from "./model-image-preprocess.js";
 import {
@@ -3752,7 +3755,7 @@ export class SessionCoordinator {
       }
 
       const sessionPath = session.sessionManager?.getSessionFile?.() || null;
-      const finalReplyText = replyText || finalAssistantText;
+      const finalReplyText = stripClosedInternalNarrationBlocks(replyText || finalAssistantText);
       const completionError = isolatedCompletionError(finalStopReason, finalErrorMessage);
 
       if (!opts.persist && !isResumedSession && sessionPath) {
