@@ -404,9 +404,18 @@ export function wrapPathTool(tool, guard, operation, cwd, opts: SandboxOpts = {}
  * @param {() => string[]} [opts.getExternalReadPaths]  session 显式授权的外部只读路径
  * @param {object} [opts.fallbackTool]  沙盒关闭时使用的原始 bash 工具（无 OS 沙盒 exec）
  */
+const WRAPPED_BASH_DESCRIPTION_WIN32 =
+  "Execute a shell command in the current working directory (via PowerShell). " +
+  "Returns stdout and stderr. Output is truncated to last 200 lines or 50KB (whichever is hit first). " +
+  "If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.";
+
 export function wrapBashTool(tool, guard, cwd, opts: SandboxOpts = {}) {
+  const description = process.platform === "win32"
+    ? WRAPPED_BASH_DESCRIPTION_WIN32
+    : tool.description;
   return {
     ...tool,
+    description,
     execute: async (toolCallId, params, ...rest) => {
       let pathChecks = null;
       if (cwd && typeof opts.checkManagedConfigWrite === "function") {
