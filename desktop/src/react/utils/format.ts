@@ -75,6 +75,16 @@ export function cronToHuman(schedule: number | string): string {
     return h > 0 ? t('cron.everyHours', { n: h }) : t('cron.everyMinutes', { n: Math.round(schedule / 60000) });
   }
   const s = String(schedule);
+  // ISO 时间字符串（at 类型）：直接转为北京时间显示
+  const date = new Date(s);
+  if (!isNaN(date.getTime()) && s.includes('T')) {
+    const beijing = new Date(date.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }));
+    const month = String(beijing.getMonth() + 1).padStart(2, '0');
+    const day = String(beijing.getDate()).padStart(2, '0');
+    const hour = String(beijing.getHours()).padStart(2, '0');
+    const minute = String(beijing.getMinutes()).padStart(2, '0');
+    return `${month}/${day} ${hour}:${minute}`;
+  }
   const parts = s.split(' ');
   if (parts.length !== 5) return s;
   const [min, hour, dayOfMonth, month, dow] = parts;
