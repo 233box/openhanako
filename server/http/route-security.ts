@@ -60,6 +60,8 @@ export function classifyHttpRoute({ method = "GET", path = "" } = {}) {
   }
   if (isWorkbenchFileReadRoute(verb, routePath)) return scoped("files.read");
   if (isWorkbenchFileWriteRoute(verb, routePath)) return scoped("files.write");
+  if (isStudioWorkspaceReadRoute(verb, routePath)) return scoped("files.read");
+  if (isStudioWorkspaceWriteRoute(verb, routePath)) return scoped("files.write");
   if (routePath === "/api/preferences/workspace-ui-state") {
     if (verb === "GET") return scoped("files.read");
     if (verb === "PUT") return scoped("files.write");
@@ -210,6 +212,7 @@ function isHtmlPreviewDocumentRoute(verb, routePath) {
 function isSettingsReadRoute(verb, routePath) {
   if (verb !== "GET") return false;
   return routePath === "/api/config"
+    || routePath === "/api/settings/snapshot"
     || routePath === "/api/plugins/settings"
     || routePath === "/api/plugins/settings-tabs"
     || routePath === "/api/providers/summary"
@@ -241,6 +244,17 @@ function isWorkbenchFileWriteRoute(verb, routePath) {
     || routePath === "/api/mobile/workbench/upload"
     || routePath === "/api/workbench/actions"
     || routePath === "/api/workbench/upload";
+}
+
+function isStudioWorkspaceReadRoute(verb, routePath) {
+  if (verb !== "GET" && verb !== "HEAD") return false;
+  return routePath === "/api/studio/workspaces"
+    || /^\/api\/studio\/workspaces\/[^/]+\/files$/.test(routePath);
+}
+
+function isStudioWorkspaceWriteRoute(verb, routePath) {
+  if (verb !== "POST") return false;
+  return routePath === "/api/studio/workspaces";
 }
 
 function isDeskFileReadRoute(verb, routePath) {

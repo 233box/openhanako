@@ -72,8 +72,8 @@ export function AccessTab() {
   const effectiveConnection = activeConnection ?? localConnection;
   const isLocalOwner = isLocalOwnerConnection(effectiveConnection);
   const [summary, setSummary] = useState<AccessSummary | null>(null);
-  const [mode, setMode] = useState<AccessMode>('loopback');
-  const [port, setPort] = useState('14500');
+  const [mode, setMode] = useState<AccessMode | null>(null);
+  const [port, setPort] = useState('');
   const [mobileKey, setMobileKey] = useState('');
   const [desktopKey, setDesktopKey] = useState('');
   const [generatingMobileKey, setGeneratingMobileKey] = useState(false);
@@ -182,6 +182,7 @@ export function AccessTab() {
   }, [showToast, summary?.network.mode]);
 
   const saveNetwork = useCallback(async () => {
+    if (!mode) return;
     await saveNetworkSettings(mode, port);
   }, [mode, port, saveNetworkSettings]);
 
@@ -406,6 +407,7 @@ export function AccessTab() {
               className={`${styles['settings-input']} ${styles['settings-port-input']}`}
               value={port}
               inputMode="numeric"
+              disabled={loadingSummary || !summary}
               onChange={(event) => setPort(event.target.value)}
             />
           }
@@ -643,6 +645,7 @@ export function AccessTab() {
                 aria-label={t('settings.access.username')}
                 className={styles['settings-input']}
                 value={accountDraft.username}
+                disabled={loadingSummary || !summary}
                 onChange={(event) => setAccountDraft(prev => ({ ...prev, username: event.target.value }))}
               />
             </label>
@@ -658,13 +661,14 @@ export function AccessTab() {
                 aria-label={t('settings.access.displayName')}
                 className={styles['settings-input']}
                 value={accountDraft.displayName}
+                disabled={loadingSummary || !summary}
                 onChange={(event) => setAccountDraft(prev => ({ ...prev, displayName: event.target.value }))}
               />
             </label>
           }
         />
         <SettingsSection.Footer>
-          <button className={styles['settings-btn-primary']} type="button" onClick={saveAccount}>
+          <button className={styles['settings-btn-primary']} type="button" onClick={saveAccount} disabled={loadingSummary || !summary}>
             {t('settings.access.saveAccount')}
           </button>
         </SettingsSection.Footer>

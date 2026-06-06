@@ -43,6 +43,14 @@ function resetState() {
     settingsConfigKey: null,
     settingsConfigStatus: 'idle',
     settingsConfigError: null,
+    settingsSnapshot: {
+      key: null,
+      status: 'idle',
+      data: null,
+      error: null,
+      requestId: 0,
+      updatedAt: null,
+    },
     globalModelsConfig: null,
     homeFolder: null,
     currentPins: [],
@@ -213,6 +221,62 @@ describe('settings actions', () => {
       '[settings] load failed:',
       expect.objectContaining({ name: 'AbortError' }),
     );
+  });
+
+  it('loadSettingsSnapshot hydrates config, preferences, and plugin settings from one backend truth source', async () => {
+    mockFetch.mockImplementation((path: string) => {
+      if (path === '/api/settings/snapshot?agentId=agent-a') {
+        return Promise.resolve(jsonResponse({
+          agentId: 'agent-a',
+          config: {
+            agent: { id: 'agent-a', name: 'Agent A' },
+            desk: { home_folder: '/agent-a/home' },
+          },
+          identity: 'agent-a-identity',
+          ishiki: 'agent-a-ishiki',
+          publicIshiki: 'agent-a-public',
+          userProfile: 'user-profile',
+          experience: 'agent-a-experience',
+          pinned: { pins: ['agent-a-pin'] },
+          globalModels: { models: { utility: { id: 'u' }, utility_large: { id: 'ul' } } },
+          preferences: {
+            quickChat: { shortcut: 'CommandOrControl+Shift+K', reuseTimeoutMinutes: 12 },
+            notifications: { turnCompletion: 'when_session_unfocused' },
+            bridge: { permissionMode: 'operate', readOnly: false, receiptEnabled: true },
+            speechRecognition: { enabled: true, defaultModel: { provider: 'dashscope', id: 'qwen3-asr' } },
+            experiments: [{ id: 'provider.deepseek_roleplay_reasoning_patch', owner: 'provider', value: true }],
+          },
+          plugins: {
+            allowFullAccess: true,
+            devToolsEnabled: true,
+            userDir: '/plugins',
+            settingsTabs: [{ pluginId: 'demo', id: 'demo-settings', title: 'Demo', nativeComponent: 'DemoSettings' }],
+          },
+        }));
+      }
+      throw new Error(`unexpected path: ${path}`);
+    });
+
+    const { loadSettingsSnapshot } = await import('../../settings/actions');
+
+    await loadSettingsSnapshot();
+
+    expect(mockState.settingsSnapshot.status).toBe('ready');
+    expect(mockState.settingsConfig).toMatchObject({
+      agent: { name: 'Agent A' },
+      _identity: 'agent-a-identity',
+      _ishiki: 'agent-a-ishiki',
+      _publicIshiki: 'agent-a-public',
+      _userProfile: 'user-profile',
+      _experience: 'agent-a-experience',
+    });
+    expect(mockState.globalModelsConfig.models.utility.id).toBe('u');
+    expect(mockState.homeFolder).toBe('/agent-a/home');
+    expect(mockState.currentPins).toEqual(['agent-a-pin']);
+    expect(mockState.pluginSettingsStatus).toBe('ready');
+    expect(mockState.pluginAllowFullAccess).toBe(true);
+    expect(mockState.pluginDevToolsEnabled).toBe(true);
+    expect(mockState.pluginSettingsTabs).toHaveLength(1);
   });
 
   it('setPrimaryAgent updates only primary ownership and keeps the current focus', async () => {

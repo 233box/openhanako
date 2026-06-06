@@ -39,7 +39,9 @@ export function AgentTab() {
   const set = useSettingsStore(s => s.set);
   const getSettingsAgentId = useSettingsStore(s => s.getSettingsAgentId);
 
-  const hasUtilityModel = !!(globalModelsConfig?.models?.utility && globalModelsConfig?.models?.utility_large);
+  const hasUtilityModel = globalModelsConfig
+    ? !!(globalModelsConfig.models?.utility && globalModelsConfig.models?.utility_large)
+    : undefined;
   const selectedSettingsAgentId = settingsAgentId || currentAgentId;
 
   const [agentName, setAgentName] = useState('');

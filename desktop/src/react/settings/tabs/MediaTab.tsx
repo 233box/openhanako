@@ -2,6 +2,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { useSettingsStore } from '../store';
 import { hanaFetch } from '../api';
 import { t } from '../helpers';
+import { updateSettingsSnapshot } from '../actions';
 import { MediaProviderDetail } from './media/MediaProviderDetail';
 import { SettingsSection } from '../components/SettingsSection';
 import { SettingsRow } from '../components/SettingsRow';
@@ -176,12 +177,20 @@ function SpeechProviderDetail({
 }
 
 export function MediaTab() {
+  const snapshotSpeechConfig = useSettingsStore(s => s.settingsSnapshot.data?.preferences?.speechRecognition);
   const [providers, setProviders] = useState<Record<string, MediaProvider>>({});
   const [config, setConfig] = useState<MediaConfig>({});
   const [speechProviders, setSpeechProviders] = useState<Record<string, SpeechProvider>>({});
-  const [speechConfig, setSpeechConfig] = useState<SpeechConfig | null>(null);
+  const [speechConfig, setSpeechConfig] = useState<SpeechConfig | null>(() => (
+    snapshotSpeechConfig ? mergeSpeechConfig({ enabled: false }, snapshotSpeechConfig) : null
+  ));
   const [selected, setSelected] = useState<MediaSelection | null>(null);
   const showToast = useSettingsStore(s => s.showToast);
+
+  useEffect(() => {
+    if (!snapshotSpeechConfig) return;
+    setSpeechConfig(mergeSpeechConfig({ enabled: false }, snapshotSpeechConfig));
+  }, [snapshotSpeechConfig]);
 
   const loadImageProviders = useCallback(async () => {
     try {
@@ -214,7 +223,6 @@ export function MediaTab() {
       });
     } catch (err: any) {
       setSpeechProviders({});
-      setSpeechConfig({ enabled: false });
       showToast(err.message || 'Failed to load speech recognition providers', 'error');
     }
   }, [showToast]);
@@ -264,9 +272,16 @@ export function MediaTab() {
       const data = await res.json().catch(() => null);
       setSpeechConfig(prev => {
         const base = prev || { enabled: false };
-        if (data?.config) return mergeSpeechConfig(base, data.config);
-        if (data?.values) return mergeSpeechConfig(base, data.values);
-        return applySpeechConfigPatch(base, updates);
+        const next = data?.config
+          ? mergeSpeechConfig(base, data.config)
+          : data?.values
+            ? mergeSpeechConfig(base, data.values)
+            : applySpeechConfigPatch(base, updates);
+        updateSettingsSnapshot(snapshot => ({
+          ...snapshot,
+          preferences: { ...snapshot.preferences, speechRecognition: next },
+        }));
+        return next;
       });
       showToast(t('settings.saved'), 'success');
     } catch (err: any) {

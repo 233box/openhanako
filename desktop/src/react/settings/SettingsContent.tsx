@@ -10,7 +10,7 @@ import {
   type ServerConnection,
 } from '../services/server-connection';
 import { t } from './helpers';
-import { loadAgents, loadAvatars, loadSettingsConfig, loadPluginSettings } from './actions';
+import { loadAgents, loadAvatars, loadSettingsConfig, loadSettingsSnapshot } from './actions';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { SettingsNav } from './SettingsNav';
 import { Toast } from './Toast';
@@ -188,7 +188,7 @@ export function SettingsContent({
         ...nextConnectionState,
       });
       loadAgents().catch(() => {});
-      loadSettingsConfig().catch(() => {});
+      loadSettingsSnapshot().catch(() => {});
     });
     return typeof unsubscribe === 'function' ? unsubscribe : undefined;
   }, []);
@@ -337,8 +337,8 @@ async function initSettings() {
     // avatars
     await loadAvatars();
 
-    // config + plugin settings
-    await Promise.all([loadSettingsConfig(), loadPluginSettings()]);
+    // Unified backend settings truth source.
+    await loadSettingsSnapshot();
 
     store.set({ ready: true });
   } catch (err) {

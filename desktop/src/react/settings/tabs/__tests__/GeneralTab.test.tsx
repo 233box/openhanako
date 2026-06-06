@@ -13,6 +13,7 @@ const quickChatReloadShortcut = vi.fn();
 const settingsChanged = vi.fn();
 const autoSaveConfig = vi.fn();
 const loadSettingsConfig = vi.fn();
+const updateSettingsSnapshot = vi.fn();
 const hanaFetch = vi.fn();
 
 vi.mock('../../api', () => ({
@@ -26,6 +27,7 @@ vi.mock('../../helpers', () => ({
 
 vi.mock('../../actions', () => ({
   loadSettingsConfig: (...args: unknown[]) => loadSettingsConfig(...args),
+  updateSettingsSnapshot: (...args: unknown[]) => updateSettingsSnapshot(...args),
 }));
 
 vi.mock('../../widgets/Toggle', () => ({
@@ -118,6 +120,14 @@ beforeEach(() => {
   quickChatReloadShortcut.mockResolvedValue({ ok: true, shortcut: 'Alt+Space' });
   useSettingsStore.setState({
     settingsConfig: { keep_awake: false },
+    settingsSnapshot: {
+      key: null,
+      status: 'idle',
+      data: null,
+      error: null,
+      requestId: 0,
+      updatedAt: null,
+    },
     toastMessage: '',
     toastType: '',
     toastVisible: false,
@@ -133,8 +143,19 @@ afterEach(() => {
   settingsChanged.mockReset();
   autoSaveConfig.mockReset();
   loadSettingsConfig.mockReset();
+  updateSettingsSnapshot.mockReset();
   hanaFetch.mockReset();
-  useSettingsStore.setState({ settingsConfig: null });
+  useSettingsStore.setState({
+    settingsConfig: null,
+    settingsSnapshot: {
+      key: null,
+      status: 'idle',
+      data: null,
+      error: null,
+      requestId: 0,
+      updatedAt: null,
+    },
+  });
   vi.unstubAllGlobals();
 });
 
@@ -218,6 +239,7 @@ describe('GeneralTab', () => {
     render(<GeneralTab />);
 
     const select = await screen.findByLabelText('turn-completion-notification');
+    await waitFor(() => expect((select as HTMLSelectElement).disabled).toBe(false));
     expect(screen.getByText('settings.general.notifications.turnCompletionWhenSessionUnfocused')).toBeTruthy();
     fireEvent.change(select, { target: { value: 'when_session_unfocused' } });
 
@@ -226,7 +248,7 @@ describe('GeneralTab', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ notifications: { turnCompletion: 'when_session_unfocused' } }),
     }));
-    expect((select as HTMLSelectElement).value).toBe('when_session_unfocused');
+    await waitFor(() => expect((select as HTMLSelectElement).value).toBe('when_session_unfocused'));
   });
 
   it('records and registers the quick chat shortcut', async () => {
@@ -239,7 +261,9 @@ describe('GeneralTab', () => {
 
     render(<GeneralTab />);
 
-    fireEvent.click(await screen.findByLabelText('settings.general.quickChat.shortcut'));
+    const shortcutButton = await screen.findByLabelText('settings.general.quickChat.shortcut');
+    await waitFor(() => expect((shortcutButton as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(shortcutButton);
     fireEvent.keyDown(window, { key: 'k', ctrlKey: true, shiftKey: true });
 
     await waitFor(() => expect(hanaFetch).toHaveBeenLastCalledWith('/api/preferences/quick-chat', {
@@ -248,9 +272,9 @@ describe('GeneralTab', () => {
       body: JSON.stringify({ quickChat: { shortcut: 'CommandOrControl+Shift+K', reuseTimeoutMinutes: 5 } }),
     }));
     expect(quickChatReloadShortcut).toHaveBeenCalledOnce();
-    expect(settingsChanged).toHaveBeenCalledWith('quick-chat-shortcut-changed', {
+    await waitFor(() => expect(settingsChanged).toHaveBeenCalledWith('quick-chat-shortcut-changed', {
       quickChat: { shortcut: 'CommandOrControl+Shift+K', reuseTimeoutMinutes: 5 },
-    });
+    }));
   });
 
   it('saves the quick chat reuse timeout without re-registering the shortcut', async () => {

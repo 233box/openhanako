@@ -58,6 +58,7 @@ vi.mock('@/ui', () => ({
 }));
 
 import { MediaTab } from '../../settings/tabs/MediaTab';
+import { useSettingsStore } from '../../settings/store';
 
 function jsonResponse(body: unknown): Response {
   return { json: async () => body } as Response;
@@ -87,6 +88,16 @@ describe('MediaTab image-gen config', () => {
 
   afterEach(() => {
     cleanup();
+    useSettingsStore.setState({
+      settingsSnapshot: {
+        key: null,
+        status: 'idle',
+        data: null,
+        error: null,
+        requestId: 0,
+        updatedAt: null,
+      },
+    });
   });
 
   it('loads global image-gen config without agent scope and saves through the generic config envelope', async () => {
@@ -381,5 +392,39 @@ describe('MediaTab image-gen config', () => {
     const option = Array.from(select.querySelectorAll('option')).find((item) => item.value === 'openai/whisper-1');
     expect(option).toBeUndefined();
     expect(select).toBeDisabled();
+  });
+
+  it('keeps snapshot speech config when speech provider loading fails', async () => {
+    useSettingsStore.setState({
+      settingsSnapshot: {
+        key: 'local:snapshot:agent-a',
+        status: 'ready',
+        data: {
+          preferences: {
+            speechRecognition: { enabled: true },
+          },
+        },
+        error: null,
+        requestId: 1,
+        updatedAt: Date.now(),
+      } as any,
+    });
+    mocks.hanaFetch.mockImplementation((path: string) => {
+      if (path === '/api/plugins/image-gen/providers') {
+        return Promise.resolve(jsonResponse({ providers: {}, config: {} }));
+      }
+      if (path === '/api/speech-recognition/providers') {
+        return Promise.reject(new Error('speech unavailable'));
+      }
+      return Promise.resolve(jsonResponse({ values: {} }));
+    });
+
+    render(<MediaTab />);
+
+    const toggle = await screen.findByRole('switch', { name: '发送语音条时转录' });
+    await waitFor(() => {
+      expect(mocks.hanaFetch).toHaveBeenCalledWith('/api/speech-recognition/providers');
+    });
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
   });
 });

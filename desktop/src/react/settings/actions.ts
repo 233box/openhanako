@@ -4,10 +4,19 @@
 import { useSettingsStore } from './store';
 import { hanaFetch, hanaUrl } from './api';
 import { t } from './helpers';
-import { makeSettingsResourceKey } from './resource-state';
+import {
+  createRemoteResource,
+  failRemoteLoad,
+  finishRemoteLoad,
+  makeSettingsResourceKey,
+  startRemoteLoad,
+} from './resource-state';
+import type { SettingsSnapshot } from './store';
 
 let _settingsConfigLoadVersion = 0;
 let _settingsConfigAbortController: AbortController | null = null;
+let _settingsSnapshotLoadVersion = 0;
+let _settingsSnapshotAbortController: AbortController | null = null;
 
 function isAbortError(err: unknown): boolean {
   return !!err && typeof err === 'object' && (err as { name?: string }).name === 'AbortError';
@@ -147,6 +156,133 @@ export async function loadSettingsConfig() {
   } finally {
     if (_settingsConfigAbortController === controller) {
       _settingsConfigAbortController = null;
+    }
+  }
+}
+
+function configFromSnapshot(snapshot: SettingsSnapshot): Record<string, any> {
+  return {
+    ...(snapshot.config || {}),
+    _identity: snapshot.identity || '',
+    _ishiki: snapshot.ishiki || '',
+    _publicIshiki: snapshot.publicIshiki || '',
+    _userProfile: snapshot.userProfile || '',
+    _experience: snapshot.experience || '',
+  };
+}
+
+function applySettingsSnapshot(snapshot: SettingsSnapshot, resourceKey: string, requestId: number) {
+  const latest = useSettingsStore.getState();
+  if (latest.settingsSnapshot.key !== resourceKey || latest.settingsSnapshot.requestId !== requestId) return;
+  const config = configFromSnapshot(snapshot);
+  const configKey = makeSettingsResourceKey('config', snapshot.agentId, latest.activeServerConnectionId);
+  latest.set({
+    settingsSnapshot: finishRemoteLoad(latest.settingsSnapshot, resourceKey, requestId, snapshot),
+    settingsConfigKey: configKey,
+    settingsConfigStatus: 'ready',
+    settingsConfigError: null,
+    settingsConfig: config,
+    globalModelsConfig: snapshot.globalModels || {},
+    homeFolder: config.desk?.home_folder || null,
+    currentPins: Array.isArray(snapshot.pinned?.pins) ? snapshot.pinned.pins : [],
+    pluginSettingsStatus: 'ready',
+    pluginSettingsError: null,
+    pluginAllowFullAccess: snapshot.plugins?.allowFullAccess === true,
+    pluginDevToolsEnabled: snapshot.plugins?.devToolsEnabled === true,
+    pluginUserDir: snapshot.plugins?.userDir || '',
+    pluginSettingsTabs: Array.isArray(snapshot.plugins?.settingsTabs) ? snapshot.plugins.settingsTabs : [],
+  });
+}
+
+export function updateSettingsSnapshot(mutator: (snapshot: SettingsSnapshot) => SettingsSnapshot) {
+  const store = useSettingsStore.getState();
+  const resource = store.settingsSnapshot || createRemoteResource<SettingsSnapshot>();
+  if (!resource.data) return;
+  const next = mutator(resource.data);
+  store.set({
+    settingsSnapshot: {
+      ...resource,
+      data: next,
+      updatedAt: Date.now(),
+    },
+  });
+}
+
+export async function loadSettingsSnapshot() {
+  const store = useSettingsStore.getState();
+  const myVersion = ++_settingsSnapshotLoadVersion;
+  if (_settingsSnapshotAbortController) {
+    _settingsSnapshotAbortController.abort();
+  }
+  const controller = new AbortController();
+  _settingsSnapshotAbortController = controller;
+  const agentId = store.getSettingsAgentId();
+  const resourceKey = makeSettingsResourceKey('snapshot', agentId, store.activeServerConnectionId);
+  const currentResource = store.settingsSnapshot || createRemoteResource<SettingsSnapshot>();
+  const requestId = currentResource.requestId + 1;
+  const configKey = makeSettingsResourceKey('config', agentId, store.activeServerConnectionId);
+  const keepSameConfigOwnerData = store.settingsConfigKey === configKey;
+
+  store.set({
+    settingsSnapshot: startRemoteLoad(currentResource, resourceKey, requestId, { retainSameKeyData: true }),
+    settingsConfigKey: configKey,
+    settingsConfigStatus: 'loading',
+    settingsConfigError: null,
+    pluginSettingsStatus: 'loading',
+    pluginSettingsError: null,
+    ...(keepSameConfigOwnerData ? {} : {
+      settingsConfig: null,
+      globalModelsConfig: null,
+      homeFolder: null,
+      currentPins: [],
+      pluginAllowFullAccess: undefined,
+      pluginDevToolsEnabled: undefined,
+      pluginUserDir: '',
+      pluginSettingsTabs: [],
+    }),
+  });
+
+  if (!agentId || !resourceKey) {
+    const latest = useSettingsStore.getState();
+    latest.set({
+      settingsSnapshot: failRemoteLoad(latest.settingsSnapshot, resourceKey, requestId, 'No settings agent selected'),
+      settingsConfigStatus: 'error',
+      settingsConfigError: 'No settings agent selected',
+      settingsConfig: null,
+      globalModelsConfig: null,
+      homeFolder: null,
+      currentPins: [],
+      pluginSettingsStatus: 'error',
+      pluginSettingsError: 'No settings agent selected',
+    });
+    return;
+  }
+
+  try {
+    const res = await hanaFetch(`/api/settings/snapshot?agentId=${encodeURIComponent(agentId)}`, {
+      signal: controller.signal,
+    });
+    const snapshot = await res.json() as SettingsSnapshot & { error?: string };
+    if (snapshot.error) throw new Error(snapshot.error);
+    if (myVersion !== _settingsSnapshotLoadVersion) return;
+    if (_settingsSnapshotAbortController !== controller) return;
+    applySettingsSnapshot(snapshot as SettingsSnapshot, resourceKey, requestId);
+  } catch (err) {
+    if (isAbortError(err)) return;
+    console.error('[settings] snapshot load failed:', err);
+    const latest = useSettingsStore.getState();
+    if (latest.settingsSnapshot.key === resourceKey && latest.settingsSnapshot.requestId === requestId) {
+      latest.set({
+        settingsSnapshot: failRemoteLoad(latest.settingsSnapshot, resourceKey, requestId, err),
+        settingsConfigStatus: 'error',
+        settingsConfigError: err instanceof Error ? err.message : String(err),
+        pluginSettingsStatus: 'error',
+        pluginSettingsError: err instanceof Error ? err.message : String(err),
+      });
+    }
+  } finally {
+    if (_settingsSnapshotAbortController === controller) {
+      _settingsSnapshotAbortController = null;
     }
   }
 }

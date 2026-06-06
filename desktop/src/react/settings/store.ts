@@ -4,7 +4,7 @@
  */
 import { create } from 'zustand';
 import type { ServerConnection, ServerConnectionRegistry } from '../services/server-connection';
-import type { RemoteResourceStatus } from './resource-state';
+import { createRemoteResource, type RemoteResource, type RemoteResourceStatus } from './resource-state';
 
 export interface Agent {
   id: string;
@@ -57,6 +57,35 @@ export interface PluginSettingsTab {
   nativeComponent: string;
 }
 
+export interface SettingsSnapshot {
+  agentId: string;
+  config: Record<string, any>;
+  identity: string;
+  ishiki: string;
+  publicIshiki: string;
+  userProfile: string;
+  experience: string;
+  pinned: { pins: string[] };
+  globalModels: Record<string, any>;
+  preferences: {
+    quickChat: Record<string, any>;
+    notifications: Record<string, any>;
+    bridge: {
+      permissionMode: 'auto' | 'operate' | 'read_only';
+      readOnly: boolean;
+      receiptEnabled: boolean;
+    };
+    speechRecognition: Record<string, any>;
+    experiments: any[];
+  };
+  plugins: {
+    allowFullAccess: boolean;
+    devToolsEnabled: boolean;
+    userDir: string;
+    settingsTabs: PluginSettingsTab[];
+  };
+}
+
 export interface SettingsState {
   // connection
   serverPort: number | null;
@@ -80,6 +109,7 @@ export interface SettingsState {
   settingsConfigKey: string | null;
   settingsConfigStatus: RemoteResourceStatus;
   settingsConfigError: string | null;
+  settingsSnapshot: RemoteResource<SettingsSnapshot>;
   globalModelsConfig: Record<string, any> | null;
   homeFolder: string | null;
 
@@ -142,6 +172,7 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
   settingsConfigKey: null,
   settingsConfigStatus: 'idle',
   settingsConfigError: null,
+  settingsSnapshot: createRemoteResource<SettingsSnapshot>(),
   globalModelsConfig: null,
   homeFolder: null,
 

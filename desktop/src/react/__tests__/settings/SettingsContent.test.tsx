@@ -32,6 +32,7 @@ vi.mock('../../settings/actions', () => ({
   loadAgents: vi.fn(async () => {}),
   loadAvatars: vi.fn(async () => {}),
   loadSettingsConfig: vi.fn(async () => {}),
+  loadSettingsSnapshot: vi.fn(async () => {}),
   loadPluginSettings: vi.fn(async () => {}),
 }));
 
@@ -144,11 +145,15 @@ describe('SettingsContent title placement', () => {
 
   it('does not echo the initially rendered tab back to the modal shell', async () => {
     const onActiveTabChange = vi.fn();
+    const actions = await import('../../settings/actions');
     const { SettingsContent } = await import('../../settings/SettingsContent');
     render(<SettingsContent variant="modal" onClose={() => {}} onActiveTabChange={onActiveTabChange} />);
 
     await waitFor(() => {
       expect(mockHanaFetch).toHaveBeenCalledWith('/api/config');
+    });
+    await waitFor(() => {
+      expect(actions.loadSettingsSnapshot).toHaveBeenCalled();
     });
     expect(onActiveTabChange).not.toHaveBeenCalled();
   });

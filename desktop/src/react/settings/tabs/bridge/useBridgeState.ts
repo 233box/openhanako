@@ -41,6 +41,7 @@ export function useBridgeState() {
   // Atomic selectors: only re-render when these specific fields change
   const showToast = useSettingsStore(s => s.showToast);
   const currentAgentId = useSettingsStore(s => s.currentAgentId);
+  const settingsSnapshot = useSettingsStore(s => s.settingsSnapshot.data);
 
   const [status, setStatus] = useState<BridgeStatus | null>(null);
   const [testingPlatform, setTestingPlatform] = useState<BridgePlatform | null>(null);
@@ -60,8 +61,9 @@ export function useBridgeState() {
   }, [currentAgentId]);
 
   // Public Ishiki — keyed to selectedAgentId
-  const [publicIshiki, setPublicIshiki] = useState('');
-  const [publicIshikiOriginal, setPublicIshikiOriginal] = useState('');
+  const initialPublicIshiki = settingsSnapshot?.agentId === currentAgentId ? settingsSnapshot.publicIshiki || '' : '';
+  const [publicIshiki, setPublicIshiki] = useState(initialPublicIshiki);
+  const [publicIshikiOriginal, setPublicIshikiOriginal] = useState(initialPublicIshiki);
 
   // Credential fields
   const [tgToken, setTgToken] = useState('');
@@ -73,13 +75,19 @@ export function useBridgeState() {
   // Fetch public ishiki for selected agent (abort stale requests on agent switch)
   useEffect(() => {
     if (!selectedAgentId) return;
+    if (settingsSnapshot?.agentId === selectedAgentId) {
+      const content = settingsSnapshot.publicIshiki || '';
+      setPublicIshiki(content);
+      setPublicIshikiOriginal(content);
+      return;
+    }
     const ac = new AbortController();
     hanaFetch(`/api/agents/${selectedAgentId}/public-ishiki`, { signal: ac.signal })
       .then(r => r.json())
       .then(data => { setPublicIshiki(data.content || ''); setPublicIshikiOriginal(data.content || ''); })
       .catch(err => { if (err?.name !== 'AbortError') console.warn('[bridge] fetch public-ishiki failed:', err); });
     return () => ac.abort();
-  }, [selectedAgentId]);
+  }, [selectedAgentId, settingsSnapshot]);
 
   const savePublicIshiki = async () => {
     const agentId = selectedAgentId;
