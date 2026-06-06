@@ -538,7 +538,7 @@ export async function deskUploadBrowserFilesToSubdir(files: File[], subdir: stri
       type: file.type || '',
       contentBase64: await blobToBase64(file),
     })));
-    const res = await hanaFetch('/api/mobile/workbench/upload', {
+    const res = await hanaFetch('/api/workbench/upload', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -549,13 +549,13 @@ export async function deskUploadBrowserFilesToSubdir(files: File[], subdir: stri
     });
     const data = await res.json();
     if (data.error || data.ok === false) {
-      console.error('[jian-desk] mobile upload error:', data.error || data.results);
+      console.error('[jian-desk] workbench upload error:', data.error || data.results);
       return false;
     }
     if (data.files) applyFilesForSubdir(normalizedSubdir, data.files);
     return true;
   } catch (err) {
-    console.error('[jian-desk] mobile upload failed:', err);
+    console.error('[jian-desk] workbench upload failed:', err);
     return false;
   }
 }
@@ -792,7 +792,7 @@ async function deskSafeDeleteMobileWorkbenchItems(items: DeskTreeMoveItem[]): Pr
   try {
     for (const item of paths) {
       if (!isPlainFileName(item.name)) break;
-      const res = await hanaFetch('/api/mobile/workbench/actions', {
+      const res = await hanaFetch('/api/workbench/actions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -809,7 +809,7 @@ async function deskSafeDeleteMobileWorkbenchItems(items: DeskTreeMoveItem[]): Pr
       if (item.isDirectory) removedDirs.push(childSubdir(item.sourceSubdir, item.name));
     }
   } catch (err) {
-    console.error('[desk] mobile safe delete failed:', err);
+    console.error('[desk] workbench safe delete failed:', err);
   } finally {
     pruneRemovedDirectoryCache(removedDirs);
   }

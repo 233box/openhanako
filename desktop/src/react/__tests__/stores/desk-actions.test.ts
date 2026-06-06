@@ -707,7 +707,7 @@ describe('desk-actions workspace roots', () => {
     const ok = await deskTrashTreeItems([{ sourceSubdir: 'notes', name: 'chapter.md', isDirectory: false }]);
 
     expect(ok).toBe(true);
-    expect(mockHanaFetch).toHaveBeenCalledWith('/api/mobile/workbench/actions', expect.objectContaining({
+    expect(mockHanaFetch).toHaveBeenCalledWith('/api/workbench/actions', expect.objectContaining({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -720,7 +720,7 @@ describe('desk-actions workspace roots', () => {
     expect(useStore.getState().deskTreeFilesByPath.notes).toEqual([]);
   });
 
-  it('uploads browser File objects through the mobile workbench upload route', async () => {
+  it('uploads browser File objects through the workbench upload route', async () => {
     useStore.setState({
       deskBasePath: '/workspace',
       deskTreeFilesByPath: {
@@ -738,7 +738,7 @@ describe('desk-actions workspace roots', () => {
 
     expect(ok).toBe(true);
     const call = mockHanaFetch.mock.calls[0];
-    expect(call[0]).toBe('/api/mobile/workbench/upload');
+    expect(call[0]).toBe('/api/workbench/upload');
     expect(call[1]).toMatchObject({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

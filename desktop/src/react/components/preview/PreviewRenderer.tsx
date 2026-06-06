@@ -35,6 +35,7 @@ import { openInternalLink, resolveLinkTarget, type LinkOpenContext } from '../..
 import { hanaFetch } from '../../hooks/use-hana-fetch';
 import { useStore } from '../../stores';
 import { upsertPreviewItem } from '../../stores/preview-actions';
+import { isRemoteWorkbenchContentRef, normalizeWorkbenchContentRef } from '../../utils/remote-file-preview';
 import { useMermaidDiagrams } from '../../hooks/use-mermaid-diagrams';
 import { LinkContextMenu, type LinkContextMenuState } from '../shared/LinkContextMenu';
 import type { PreviewItem } from '../../types';
@@ -154,6 +155,21 @@ function coverLayout(cover: MarkdownCover): Required<MarkdownCoverLayoutPatch> {
   };
 }
 
+function remoteWorkbenchCoverImageUrl(previewItem: PreviewItem, image: string | null | undefined): string | null {
+  if (!image || !isRemoteWorkbenchContentRef(previewItem.remoteContentRef)) return null;
+  if (isExternalCoverImagePath(image)) return image;
+  const normalized = normalizeWorkbenchContentRef(previewItem.remoteContentRef);
+  const parts = image.replace(/^\.?\//, '').split('/').filter(Boolean);
+  const name = parts.pop();
+  if (!name) return null;
+  const subdir = [normalized.subdir, ...parts].filter(Boolean).join('/');
+  const params = new URLSearchParams();
+  params.set('rootId', normalized.rootId || 'default');
+  params.set('subdir', subdir);
+  params.set('name', name);
+  return `/api/workbench/content?${params.toString()}`;
+}
+
 function MarkdownCoverView({ previewItem, cover }: { previewItem: PreviewItem; cover: MarkdownCover }) {
   const [layout, setLayout] = useState(() => coverLayout(cover));
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
@@ -180,10 +196,11 @@ function MarkdownCoverView({ previewItem, cover }: { previewItem: PreviewItem; c
     return () => window.removeEventListener('pointerdown', close);
   }, [menu]);
 
-  const imagePath = resolveMarkdownCoverImagePath(previewItem.filePath, cover.image);
-  const imageUrl = imagePath && isExternalCoverImagePath(imagePath)
+  const remoteImageUrl = remoteWorkbenchCoverImageUrl(previewItem, cover.image);
+  const imagePath = remoteImageUrl ? null : resolveMarkdownCoverImagePath(previewItem.filePath, cover.image);
+  const imageUrl = remoteImageUrl || (imagePath && isExternalCoverImagePath(imagePath)
     ? imagePath
-    : imagePath ? window.platform?.getFileUrl?.(imagePath) || imagePath : null;
+    : imagePath ? window.platform?.getFileUrl?.(imagePath) || imagePath : null);
 
   const persistLayout = useCallback(async (nextLayout: Required<MarkdownCoverLayoutPatch>) => {
     if (!previewItem.filePath || !window.platform?.writeFileIfUnchanged) return;

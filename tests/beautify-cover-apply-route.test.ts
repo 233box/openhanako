@@ -35,6 +35,7 @@ function makeEngine(tmpDir, options: any = {}) {
     bus: { request: vi.fn(async () => ({})) },
   };
   return {
+    hanakoHome: path.join(tmpDir, "hana"),
     deskCwd: tmpDir,
     homeCwd: tmpDir,
     currentAgentId: agent.id,
@@ -97,6 +98,45 @@ describe("desk beautify cover apply route", () => {
     }, null);
   });
 
+  it("applies uploaded cover bytes to a server workbench Markdown target", async () => {
+    const notePath = path.join(tmpDir, "note.md");
+    fs.writeFileSync(notePath, "# Demo\n", "utf-8");
+
+    const { createDeskRoute } = await import("../server/routes/desk.ts");
+    const engine = makeEngine(tmpDir);
+    const app = new Hono();
+    app.route("/api", createDeskRoute(engine, null));
+
+    const target = { kind: "workbench-file", rootId: "default", subdir: "", name: "note.md" };
+    const res = await app.request("/api/desk/beautify/cover/apply", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        target,
+        image: {
+          filename: "client-cover.png",
+          contentBase64: PNG_HEADER.toString("base64"),
+        },
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.target).toEqual(target);
+    expect(body.cover.image).toMatch(/^文本附件\/note-cover-/);
+    expect(fs.existsSync(path.join(tmpDir, ...body.cover.image.split("/")))).toBe(true);
+    expect(fs.readFileSync(notePath, "utf-8")).toContain("cover:");
+    expect(engine.emitEvent).toHaveBeenCalledWith({
+      type: "app_event",
+      event: {
+        type: "markdown-cover-updated",
+        payload: { target },
+        source: "server",
+      },
+    }, null);
+  });
+
   it("allows direct UI local image apply when the Agent beautify tool is disabled", async () => {
     const notePath = path.join(tmpDir, "note.md");
     const imagePath = path.join(tmpDir, "cover.png");
@@ -150,6 +190,35 @@ describe("desk beautify cover apply route", () => {
         source: "server",
       },
     }, null);
+  });
+
+  it("applies a built-in cover gallery preset to a server workbench Markdown target", async () => {
+    const notePath = path.join(tmpDir, "note.md");
+    fs.writeFileSync(notePath, "# Demo\n", "utf-8");
+
+    const { COVER_GALLERY_PRESETS } = await import("../shared/cover-gallery-presets.ts");
+    const { createDeskRoute } = await import("../server/routes/desk.ts");
+    const engine = makeEngine(tmpDir);
+    const app = new Hono();
+    app.route("/api", createDeskRoute(engine, null));
+
+    const target = { kind: "workbench-file", rootId: "default", subdir: "", name: "note.md" };
+    const res = await app.request("/api/desk/beautify/cover/preset/apply", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        target,
+        presetId: COVER_GALLERY_PRESETS[0].id,
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.target).toEqual(target);
+    expect(body.cover.image).toMatch(/^文本附件\/note-cover-/);
+    expect(fs.existsSync(path.join(tmpDir, ...body.cover.image.split("/")))).toBe(true);
+    expect(fs.readFileSync(notePath, "utf-8")).toContain("cover:");
   });
 
   it("allows built-in cover gallery preset apply when the Agent beautify tool is disabled", async () => {

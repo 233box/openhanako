@@ -7,6 +7,7 @@ import { activateWorkspaceDesk } from '../stores/desk-actions';
 import { loadChannels } from '../stores/channel-actions';
 import { applyEditorTypography } from '../editor/typography';
 import { refreshPreviewItemsFromFile } from '../utils/preview-file-refresh';
+import { isRemoteWorkbenchContentRef, refreshPreviewItemsFromRemoteWorkbenchTarget } from '../utils/remote-file-preview';
 import { mergeWorkspaceHistory } from '../../../../shared/workspace-history.ts';
 
 declare const i18n: {
@@ -222,6 +223,8 @@ export function handleAppEvent(type: string, data: any = {}, options: AppEventOp
     case 'markdown-cover-updated':
       if (typeof data.filePath === 'string' && data.filePath) {
         void refreshPreviewItemsFromFile(data.filePath);
+      } else if (isRemoteWorkbenchContentRef(data.target)) {
+        void refreshPreviewItemsFromRemoteWorkbenchTarget(data.target);
       }
       break;
     case 'session-file-updated':

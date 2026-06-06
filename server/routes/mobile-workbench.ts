@@ -44,7 +44,7 @@ export function createMobileWorkbenchRoute(engine) {
     });
   });
 
-  route.get("/mobile/workbench/files", async (c) => {
+  const listWorkbenchFiles = async (c) => {
     try {
       const auth = authorizeWorkbench(c, engine, "files.read");
       if (auth.response) return auth.response;
@@ -53,9 +53,11 @@ export function createMobileWorkbenchRoute(engine) {
     } catch (err) {
       return workbenchError(c, err);
     }
-  });
+  };
+  route.get("/mobile/workbench/files", listWorkbenchFiles);
+  route.get("/workbench/files", listWorkbenchFiles);
 
-  route.get("/mobile/workbench/search", async (c) => {
+  const searchWorkbenchFiles = async (c) => {
     try {
       const auth = authorizeWorkbench(c, engine, "files.read");
       if (auth.response) return auth.response;
@@ -64,12 +66,16 @@ export function createMobileWorkbenchRoute(engine) {
     } catch (err) {
       return workbenchError(c, err);
     }
-  });
+  };
+  route.get("/mobile/workbench/search", searchWorkbenchFiles);
+  route.get("/workbench/search", searchWorkbenchFiles);
 
   route.get("/mobile/workbench/content", (c) => serveContent(c, engine, false));
   route.on("HEAD", "/mobile/workbench/content", (c) => serveContent(c, engine, true));
+  route.get("/workbench/content", (c) => serveContent(c, engine, false));
+  route.on("HEAD", "/workbench/content", (c) => serveContent(c, engine, true));
 
-  route.post("/mobile/workbench/actions", async (c) => {
+  const runWorkbenchAction = async (c) => {
     const auth = authorizeWorkbench(c, engine, "files.write");
     if (auth.response) return auth.response;
     const body = await safeJson(c);
@@ -96,9 +102,11 @@ export function createMobileWorkbenchRoute(engine) {
     } catch (err) {
       return workbenchError(c, err);
     }
-  });
+  };
+  route.post("/mobile/workbench/actions", runWorkbenchAction);
+  route.post("/workbench/actions", runWorkbenchAction);
 
-  route.post("/mobile/workbench/upload", uploadBodyLimit, async (c) => {
+  const uploadWorkbenchFiles = async (c) => {
     const auth = authorizeWorkbench(c, engine, "files.write");
     if (auth.response) return auth.response;
     try {
@@ -133,7 +141,9 @@ export function createMobileWorkbenchRoute(engine) {
     } catch (err) {
       return workbenchError(c, err);
     }
-  });
+  };
+  route.post("/mobile/workbench/upload", uploadBodyLimit, uploadWorkbenchFiles);
+  route.post("/workbench/upload", uploadBodyLimit, uploadWorkbenchFiles);
 
   return route;
 }

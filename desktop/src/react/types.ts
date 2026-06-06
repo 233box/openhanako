@@ -247,7 +247,7 @@ export interface VersionedWriteResult {
 }
 
 export interface RemoteWorkbenchContentRef {
-  kind: 'mobile-workbench';
+  kind: 'workbench-file' | 'mobile-workbench';
   rootId: string;
   subdir: string;
   name: string;

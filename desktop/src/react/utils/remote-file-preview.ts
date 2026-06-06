@@ -7,7 +7,7 @@ import type {
 import type { DeskFile } from '../types';
 import type { FileRef } from '../types/file-ref';
 import { hanaFetch } from '../hooks/use-hana-fetch';
-import { openPreview } from '../stores/preview-actions';
+import { openPreview, upsertPreviewItem } from '../stores/preview-actions';
 import { useStore } from '../stores';
 import { resolveServerConnection } from '../services/server-connection';
 import { resolveFileRefUrl } from '../services/resource-url';
@@ -49,7 +49,25 @@ function encodeWorkbenchContentPath({
   params.set('rootId', rootId || 'default');
   params.set('subdir', subdir || '');
   params.set('name', name);
-  return `/api/mobile/workbench/content?${params.toString()}`;
+  return `/api/workbench/content?${params.toString()}`;
+}
+
+export function isRemoteWorkbenchContentRef(value: unknown): value is RemoteWorkbenchContentRef {
+  if (!isRecord(value)) return false;
+  return (value.kind === 'workbench-file' || value.kind === 'mobile-workbench')
+    && typeof value.rootId === 'string'
+    && typeof value.subdir === 'string'
+    && typeof value.name === 'string';
+}
+
+export function normalizeWorkbenchContentRef(ref: RemoteWorkbenchContentRef): RemoteWorkbenchContentRef {
+  return {
+    ...ref,
+    kind: 'workbench-file',
+    rootId: ref.rootId || 'default',
+    subdir: ref.subdir || '',
+    name: ref.name,
+  };
 }
 
 function previewId(prefix: string, key: string): string {
@@ -167,7 +185,7 @@ export async function saveRemoteWorkbenchContent(
   content: string,
   expectedVersion?: FileVersion | null,
 ): Promise<VersionedWriteResult> {
-  const res = await hanaFetch('/api/mobile/workbench/actions', {
+  const res = await hanaFetch('/api/workbench/actions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -186,6 +204,35 @@ export async function saveRemoteWorkbenchContent(
     conflict: data.conflict === true,
     version: normalizeFileVersion(data.version),
   };
+}
+
+function refsPointToSameWorkbenchFile(
+  left: RemoteWorkbenchContentRef | null | undefined,
+  right: RemoteWorkbenchContentRef,
+): boolean {
+  if (!isRemoteWorkbenchContentRef(left)) return false;
+  return (left.rootId || 'default') === (right.rootId || 'default')
+    && (left.subdir || '') === (right.subdir || '')
+    && left.name === right.name;
+}
+
+export async function refreshPreviewItemsFromRemoteWorkbenchTarget(target: RemoteWorkbenchContentRef): Promise<void> {
+  const normalized = normalizeWorkbenchContentRef(target);
+  const state = useStore.getState();
+  const matching = (state.previewItems || []).filter(item =>
+    refsPointToSameWorkbenchFile(item.remoteContentRef, normalized));
+  for (const item of matching) {
+    const contentPath = item.remoteContentRef?.contentPath || encodeWorkbenchContentPath(normalized);
+    const separator = contentPath.includes('?') ? '&' : '?';
+    const cacheBustedPath = `${contentPath}${separator}v=${encodeURIComponent(String(Date.now()))}`;
+    const content = await readContentForPreview(cacheBustedPath, item.type);
+    upsertPreviewItem({
+      ...item,
+      content,
+      status: 'available',
+      missingAt: null,
+    });
+  }
 }
 
 export async function openMobileWorkbenchPreview(input: WorkbenchPreviewInput): Promise<void> {
@@ -225,7 +272,7 @@ export async function openMobileWorkbenchPreview(input: WorkbenchPreviewInput): 
       mediaRef,
       mediaContext: { origin: 'desk' },
       remoteContentRef: {
-        kind: 'mobile-workbench',
+        kind: 'workbench-file',
         rootId,
         subdir: input.subdir || '',
         name,

@@ -278,7 +278,17 @@ describe("access route", () => {
         trustState: "lan",
       },
       credential: {
-        scopes: ["chat", "resources.read", "files.read", "files.write"],
+        scopes: [
+          "chat",
+          "resources.read",
+          "files.read",
+          "files.write",
+          "settings.read",
+          "settings.write",
+          "providers.manage",
+          "secrets.write",
+          "bridge.manage",
+        ],
         status: "active",
       },
     });

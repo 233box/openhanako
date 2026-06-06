@@ -166,14 +166,16 @@ describe("HTTP route security policy", () => {
       });
   });
 
-  it("allows remote plugin UI metadata and iframe ticket issuance without opening plugin route apps", async () => {
+  it("allows remote plugin UI metadata, settings tabs, and iframe ticket issuance without opening plugin route apps", async () => {
     const { authorizeHttpRoute } = await import("../server/http/route-security.ts");
-    const principal = devicePrincipal(["chat"]);
+    const principal = devicePrincipal(["chat", "settings.read"]);
 
     for (const [method, path] of [
       ["GET", "/api/plugins/pages"],
       ["GET", "/api/plugins/widgets"],
       ["GET", "/api/plugins/ui-host-capabilities"],
+      ["GET", "/api/plugins/settings"],
+      ["GET", "/api/plugins/settings-tabs"],
       ["GET", "/api/plugins/theme.css"],
       ["GET", "/api/plugins/demo/assets/dist/app.js"],
       ["HEAD", "/api/plugins/demo/assets/dist/app.js"],
@@ -201,6 +203,47 @@ describe("HTTP route security policy", () => {
         status: 403,
         error: "local_only_route",
       });
+    expect(authorizeHttpRoute({ method: "PUT", path: "/api/plugins/settings", principal }))
+      .toMatchObject({
+        allowed: false,
+        status: 403,
+        error: "local_only_route",
+      });
+  });
+
+  it("gates built-in MCP connector settings by settings scopes", async () => {
+    const { authorizeHttpRoute } = await import("../server/http/route-security.ts");
+    const reader = devicePrincipal(["settings.read"]);
+    const writer = devicePrincipal(["settings.read", "settings.write"]);
+    const chatOnly = devicePrincipal(["chat"]);
+
+    for (const [method, path] of [
+      ["GET", "/api/plugins/mcp/state"],
+      ["GET", "/api/plugins/mcp/oauth/poll/session_1"],
+    ]) {
+      expect(authorizeHttpRoute({ method, path, principal: reader }))
+        .toMatchObject({ allowed: true });
+      expect(authorizeHttpRoute({ method, path, principal: chatOnly }))
+        .toMatchObject({ allowed: false, error: "insufficient_scope" });
+    }
+
+    for (const [method, path] of [
+      ["PUT", "/api/plugins/mcp/settings/enabled"],
+      ["POST", "/api/plugins/mcp/connectors"],
+      ["PUT", "/api/plugins/mcp/connectors/github"],
+      ["DELETE", "/api/plugins/mcp/connectors/github"],
+      ["POST", "/api/plugins/mcp/connectors/github/start"],
+      ["POST", "/api/plugins/mcp/connectors/github/stop"],
+      ["POST", "/api/plugins/mcp/connectors/github/refresh-tools"],
+      ["PUT", "/api/plugins/mcp/agents/hana/connectors/github"],
+      ["POST", "/api/plugins/mcp/connectors/github/oauth/start"],
+      ["POST", "/api/plugins/mcp/connectors/github/oauth/logout"],
+    ]) {
+      expect(authorizeHttpRoute({ method, path, principal: writer }))
+        .toMatchObject({ allowed: true });
+      expect(authorizeHttpRoute({ method, path, principal: reader }))
+        .toMatchObject({ allowed: false, error: "insufficient_scope" });
+    }
   });
 
   it("treats browser PWA assets and web-auth login as public bootstrap routes", async () => {
@@ -231,7 +274,7 @@ describe("HTTP route security policy", () => {
     }
   });
 
-  it("gates mobile workbench routes behind explicit file scopes", async () => {
+  it("gates workbench routes behind explicit file scopes", async () => {
     const { authorizeHttpRoute } = await import("../server/http/route-security.ts");
     const reader = devicePrincipal(["chat", "files.read"]);
     const writer = devicePrincipal(["chat", "files.read", "files.write"]);
@@ -254,6 +297,11 @@ describe("HTTP route security policy", () => {
       ["GET", "/api/mobile/workbench/search"],
       ["GET", "/api/mobile/workbench/content"],
       ["HEAD", "/api/mobile/workbench/content"],
+      ["GET", "/api/workbench/files"],
+      ["GET", "/api/workbench/search"],
+      ["GET", "/api/workbench/content"],
+      ["HEAD", "/api/workbench/content"],
+      ["GET", "/api/desk/beautify/status"],
       ["GET", "/api/desk/path"],
       ["GET", "/api/desk/files"],
       ["GET", "/api/desk/search-files"],
@@ -270,6 +318,16 @@ describe("HTTP route security policy", () => {
       principal: reader,
     })).toMatchObject({ allowed: false, error: "insufficient_scope" });
     expect(authorizeHttpRoute({
+      method: "POST",
+      path: "/api/workbench/actions",
+      principal: reader,
+    })).toMatchObject({ allowed: false, error: "insufficient_scope" });
+    expect(authorizeHttpRoute({
+      method: "POST",
+      path: "/api/desk/beautify/cover/apply",
+      principal: reader,
+    })).toMatchObject({ allowed: false, error: "insufficient_scope" });
+    expect(authorizeHttpRoute({
       method: "GET",
       path: "/api/preferences/models",
       principal: reader,
@@ -279,6 +337,24 @@ describe("HTTP route security policy", () => {
       path: "/api/mobile/workbench/actions",
       principal: writer,
     })).toMatchObject({ allowed: true });
+    expect(authorizeHttpRoute({
+      method: "POST",
+      path: "/api/workbench/actions",
+      principal: writer,
+    })).toMatchObject({ allowed: true });
+    expect(authorizeHttpRoute({
+      method: "POST",
+      path: "/api/workbench/upload",
+      principal: writer,
+    })).toMatchObject({ allowed: true });
+    for (const path of [
+      "/api/desk/beautify/cover",
+      "/api/desk/beautify/cover/apply",
+      "/api/desk/beautify/cover/preset/apply",
+    ]) {
+      expect(authorizeHttpRoute({ method: "POST", path, principal: writer }))
+        .toMatchObject({ allowed: true });
+    }
     expect(authorizeHttpRoute({
       method: "POST",
       path: "/api/desk/files",

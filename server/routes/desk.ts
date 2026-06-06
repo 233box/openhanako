@@ -7,7 +7,9 @@
  */
 
 import fs from "fs";
+import os from "os";
 import path from "path";
+import crypto from "crypto";
 import { execFileSync } from "child_process";
 import { Hono } from "hono";
 import { safeJson } from "../hono-helpers.ts";
@@ -25,7 +27,9 @@ import { t } from "../../lib/i18n.ts";
 import { realPath, isSensitivePath } from "../utils/path-security.ts";
 import { readAuthPrincipal } from "../http/capability-guard.ts";
 import { isLocalOwnerPrincipal } from "../http/route-security.ts";
+import { createRequestContext } from "../http/boundary.ts";
 import { createModuleLogger } from "../../lib/debug-log.ts";
+import { MountAwareFileError, MountAwareFileService } from "../../core/mount-aware-file-service.ts";
 
 const log = createModuleLogger("desk");
 
@@ -196,6 +200,7 @@ const WORKSPACE_SEARCH_SKIP_DIRS = new Set([
 ]);
 const WORKSPACE_SEARCH_LIMIT = 80;
 const BEAUTIFY_OPTIONAL_TOOL_NAME = "beautify";
+const MAX_COVER_UPLOAD_BYTES = 25 * 1024 * 1024;
 
 function toRelativeSubdir(root, target) {
   const rel = path.relative(root, target);
@@ -466,6 +471,141 @@ export function createDeskRoute(engine, hub) {
     return {};
   }
 
+  function canUseLocalAbsolutePaths(c) {
+    const principal = readAuthPrincipal(c);
+    return !principal || principal.kind === "unknown" || isLocalOwnerPrincipal(principal);
+  }
+
+  function fileServiceForRequest(c) {
+    const requestContext = createRequestContext(c, engine);
+    return new MountAwareFileService({
+      hanakoHome: engine.hanakoHome,
+      defaultRoot: defaultDeskDir(engine),
+      studioId: requestContext?.studioId || engine.getRuntimeContext?.()?.studioId || null,
+      createCheckpoint: typeof engine.createUserEditCheckpoint === "function"
+        ? (args) => engine.createUserEditCheckpoint(args)
+        : null,
+    });
+  }
+
+  function normalizeWorkbenchCoverTarget(body) {
+    const raw = body?.target || body?.remoteContentRef || null;
+    if (!raw) return null;
+    if (typeof raw !== "object" || Array.isArray(raw)) {
+      throw coverRouteError("target must be a workbench file target", "invalid_target", 400);
+    }
+    if (raw.kind !== "workbench-file" && raw.kind !== "mobile-workbench") {
+      throw coverRouteError("target.kind must be workbench-file", "invalid_target", 400);
+    }
+    return {
+      kind: "workbench-file",
+      rootId: typeof raw.rootId === "string" && raw.rootId.trim() ? raw.rootId.trim() : "default",
+      subdir: typeof raw.subdir === "string" ? raw.subdir : "",
+      name: typeof raw.name === "string" ? raw.name : "",
+    };
+  }
+
+  function resolveBeautifyMarkdownTarget(c, body) {
+    try {
+      const target = normalizeWorkbenchCoverTarget(body);
+      if (target) {
+        const resolved = fileServiceForRequest(c).writeFileTarget(target.rootId, target.subdir, target.name);
+        const fileError = validateBeautifyMarkdownFilePath(resolved.target);
+        if (fileError) return { error: fileError, status: 400 };
+        return {
+          filePath: resolved.target,
+          target: {
+            kind: "workbench-file",
+            rootId: resolved.root?.id || target.rootId,
+            subdir: target.subdir,
+            name: resolved.filename,
+          },
+        };
+      }
+
+      const filePath = typeof body?.filePath === "string" ? body.filePath : "";
+      if (!canUseLocalAbsolutePaths(c)) {
+        return { error: "filePath requires local owner; use target for remote clients", status: 403 };
+      }
+      const fileError = validateBeautifyMarkdownFilePath(filePath);
+      if (fileError) return { error: fileError, status: 400 };
+      return { filePath, target: null };
+    } catch (err) {
+      if (err instanceof MountAwareFileError) {
+        return { error: err.message, status: err.status };
+      }
+      return { error: err?.message || String(err), status: err?.status || 400 };
+    }
+  }
+
+  function resolveLocalCoverImagePath(c, body) {
+    const imageFilePath = typeof body?.imageFilePath === "string"
+      ? body.imageFilePath
+      : typeof body?.generatedFilePath === "string" ? body.generatedFilePath : "";
+    if (!imageFilePath) return null;
+    if (!canUseLocalAbsolutePaths(c)) {
+      return { error: "imageFilePath requires local owner; upload image.contentBase64 for remote clients", status: 403 };
+    }
+    if (!path.isAbsolute(imageFilePath)) {
+      return { error: "imageFilePath must be an absolute image file path", status: 400 };
+    }
+    return { filePath: imageFilePath, cleanup: null };
+  }
+
+  function writeUploadedCoverImage(body) {
+    const image = body?.image && typeof body.image === "object" && !Array.isArray(body.image)
+      ? body.image
+      : null;
+    const contentBase64 = typeof image?.contentBase64 === "string" ? image.contentBase64 : "";
+    if (!contentBase64) return null;
+
+    const base64 = contentBase64.includes(",") ? contentBase64.split(",").pop() : contentBase64;
+    const buffer = Buffer.from(String(base64 || ""), "base64");
+    if (buffer.byteLength === 0) {
+      return { error: "image.contentBase64 is empty", status: 400 };
+    }
+    if (buffer.byteLength > MAX_COVER_UPLOAD_BYTES) {
+      return { error: "image file too large", status: 413 };
+    }
+
+    const filename = typeof image.filename === "string" && image.filename.trim()
+      ? image.filename.trim()
+      : typeof image.name === "string" && image.name.trim() ? image.name.trim() : "cover.png";
+    const ext = path.extname(filename).toLowerCase() || ".png";
+    const uploadRoot = path.join(engine.hanakoHome || os.tmpdir(), "tmp", "markdown-cover-uploads");
+    fs.mkdirSync(uploadRoot, { recursive: true });
+    const tempDir = fs.mkdtempSync(path.join(uploadRoot, "cover-"));
+    const filePath = path.join(tempDir, `upload-${crypto.randomBytes(4).toString("hex")}${ext}`);
+    fs.writeFileSync(filePath, buffer);
+    return {
+      filePath,
+      cleanup: () => fs.rmSync(tempDir, { recursive: true, force: true }),
+    };
+  }
+
+  function coverImageFromRequest(c, body) {
+    const local = resolveLocalCoverImagePath(c, body);
+    if (local) return local;
+    const uploaded = writeUploadedCoverImage(body);
+    if (uploaded) return uploaded;
+    return { error: "imageFilePath or image.contentBase64 is required", status: 400 };
+  }
+
+  function coverRouteError(message, code, status) {
+    const err: any = new Error(message);
+    err.code = code;
+    err.status = status;
+    return err;
+  }
+
+  function emitMarkdownCoverUpdated(targetInfo) {
+    if (targetInfo.target) {
+      emitAppEvent(engine, "markdown-cover-updated", { target: targetInfo.target });
+    } else {
+      emitAppEvent(engine, "markdown-cover-updated", { filePath: targetInfo.filePath });
+    }
+  }
+
   async function validateBeautifyGenerationAccess(body) {
     const status = await getBeautifyGenerationStatus(body?.executorAgentId || body?.agentId);
     if (!status.executorAgentId) return { error: "agent unavailable", status: 500, reason: "agent-unavailable" };
@@ -501,37 +641,38 @@ export function createDeskRoute(engine, hub) {
 
   route.post("/desk/beautify/cover/apply", async (c) => {
     const body = await safeJson(c);
-    const filePath = typeof body?.filePath === "string" ? body.filePath : "";
-    const fileError = validateBeautifyMarkdownFilePath(filePath);
-    if (fileError) return c.json({ error: fileError }, 400);
+    const targetInfo = resolveBeautifyMarkdownTarget(c, body);
+    if (targetInfo.error) return c.json({ error: targetInfo.error }, targetInfo.status as any);
 
     const access = validateMarkdownCoverSystemAccess();
     if (access.error) return c.json({ error: access.error }, access.status as any);
 
-    const imageFilePath = typeof body?.imageFilePath === "string"
-      ? body.imageFilePath
-      : typeof body?.generatedFilePath === "string" ? body.generatedFilePath : "";
-    if (!imageFilePath || !path.isAbsolute(imageFilePath)) {
-      return c.json({ error: "imageFilePath must be an absolute image file path" }, 400);
-    }
+    const image = coverImageFromRequest(c, body);
+    if (image.error) return c.json({ error: image.error }, image.status as any);
 
     try {
       const result = await (applyMarkdownCoverFromGeneratedFile as any)({
-        markdownFilePath: filePath,
-        generatedFilePath: imageFilePath,
+        markdownFilePath: targetInfo.filePath,
+        generatedFilePath: image.filePath,
       });
-      emitAppEvent(engine, "markdown-cover-updated", { filePath });
-      return c.json({ ok: true, cover: result.cover, beautifyCover: result });
+      emitMarkdownCoverUpdated(targetInfo);
+      return c.json({
+        ok: true,
+        ...(targetInfo.target ? { target: targetInfo.target } : {}),
+        cover: result.cover,
+        beautifyCover: result,
+      });
     } catch (err) {
       return c.json({ error: err?.message || String(err) }, 400);
+    } finally {
+      image.cleanup?.();
     }
   });
 
   route.post("/desk/beautify/cover/preset/apply", async (c) => {
     const body = await safeJson(c);
-    const filePath = typeof body?.filePath === "string" ? body.filePath : "";
-    const fileError = validateBeautifyMarkdownFilePath(filePath);
-    if (fileError) return c.json({ error: fileError }, 400);
+    const targetInfo = resolveBeautifyMarkdownTarget(c, body);
+    if (targetInfo.error) return c.json({ error: targetInfo.error }, targetInfo.status as any);
 
     const access = validateMarkdownCoverSystemAccess();
     if (access.error) return c.json({ error: access.error }, access.status as any);
@@ -546,11 +687,16 @@ export function createDeskRoute(engine, hub) {
 
     try {
       const result = await (applyMarkdownCoverFromGeneratedFile as any)({
-        markdownFilePath: filePath,
+        markdownFilePath: targetInfo.filePath,
         generatedFilePath: imageFilePath,
       });
-      emitAppEvent(engine, "markdown-cover-updated", { filePath });
-      return c.json({ ok: true, cover: result.cover, beautifyCover: result });
+      emitMarkdownCoverUpdated(targetInfo);
+      return c.json({
+        ok: true,
+        ...(targetInfo.target ? { target: targetInfo.target } : {}),
+        cover: result.cover,
+        beautifyCover: result,
+      });
     } catch (err) {
       return c.json({ error: err?.message || String(err) }, 400);
     }
@@ -558,9 +704,9 @@ export function createDeskRoute(engine, hub) {
 
   route.post("/desk/beautify/cover", async (c) => {
     const body = await safeJson(c);
-    const filePath = typeof body?.filePath === "string" ? body.filePath : "";
-    const fileError = validateBeautifyMarkdownFilePath(filePath);
-    if (fileError) return c.json({ error: fileError }, 400);
+    const targetInfo = resolveBeautifyMarkdownTarget(c, body);
+    if (targetInfo.error) return c.json({ error: targetInfo.error }, targetInfo.status as any);
+    const filePath = targetInfo.filePath;
 
     const access = await validateBeautifyGenerationAccess(body);
     if (access.error) {
@@ -1108,8 +1254,7 @@ export function createDeskRoute(engine, hub) {
         // upload 接受调用方提供的绝对源路径列表，把本机文件复制进 desk。
         // 该语义只为桌面 owner 端的本机拖拽设计；远端 paired 设备不应能借此
         // 把 desk dir 之外的任意可读路径（~/Documents、Library、shell init 等）
-        // 拷进工作区再读回。远端要上传文件应走 /api/mobile/workbench/upload 的
-        // multipart 通道。
+        // 拷进工作区再读回。远端要上传文件应走 /api/workbench/upload。
         if (!isLocalOwnerPrincipal(readAuthPrincipal(c))) {
           return c.json({ error: "upload by absolute path requires local owner" }, 403);
         }

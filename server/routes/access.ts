@@ -17,8 +17,18 @@ import { isLocalOwnerPrincipal } from "../http/route-security.ts";
 import { recordSecurityAuditEvent } from "../http/security-audit.ts";
 import { safeJson } from "../hono-helpers.ts";
 
-const DEFAULT_REMOTE_ACCESS_SCOPES = Object.freeze(["chat", "resources.read", "files.read", "files.write"]);
-const ALLOWED_REMOTE_ACCESS_SCOPES = new Set(DEFAULT_REMOTE_ACCESS_SCOPES);
+const MOBILE_REMOTE_ACCESS_SCOPES = Object.freeze(["chat", "resources.read", "files.read", "files.write"]);
+const DESKTOP_REMOTE_ACCESS_SCOPES = Object.freeze([
+  "chat",
+  "resources.read",
+  "files.read",
+  "files.write",
+  "settings.read",
+  "settings.write",
+  "providers.manage",
+  "secrets.write",
+  "bridge.manage",
+]);
 const ACCESS_PROFILES = Object.freeze({
   mobile: Object.freeze({
     deviceKind: "mobile",
@@ -26,6 +36,9 @@ const ACCESS_PROFILES = Object.freeze({
     auditAction: "access.mobile_credential.issue",
     urlField: "lanMobileUrl",
     localUrlField: "localMobileUrl",
+    defaultScopes: MOBILE_REMOTE_ACCESS_SCOPES,
+    allowedScopes: new Set(MOBILE_REMOTE_ACCESS_SCOPES),
+    requiredScopes: Object.freeze(["resources.read"]),
   }),
   desktop: Object.freeze({
     deviceKind: "desktop",
@@ -33,6 +46,9 @@ const ACCESS_PROFILES = Object.freeze({
     auditAction: "access.desktop_credential.issue",
     urlField: "lanDesktopUrl",
     localUrlField: "localDesktopUrl",
+    defaultScopes: DESKTOP_REMOTE_ACCESS_SCOPES,
+    allowedScopes: new Set(DESKTOP_REMOTE_ACCESS_SCOPES),
+    requiredScopes: DESKTOP_REMOTE_ACCESS_SCOPES,
   }),
 });
 
@@ -120,7 +136,7 @@ export function createAccessRoute({
     try {
       const body = await safeJson(c);
       const runtimeContext = resolveRuntimeContext(c, engine);
-      const scopes = normalizeScopes(body?.scopes);
+      const scopes = normalizeScopes(body?.scopes, profile);
       const issued = createDeviceCredential(engine.hanakoHome, {
         serverNodeId: runtimeContext.serverNodeId,
         userId: runtimeContext.userId,
@@ -341,14 +357,17 @@ function normalizeDisplayName(value, fallback) {
   return value.trim().slice(0, 80);
 }
 
-function normalizeScopes(value) {
-  const raw = Array.isArray(value) && value.length > 0 ? value : DEFAULT_REMOTE_ACCESS_SCOPES;
+function normalizeScopes(value, profile) {
+  const defaultScopes = profile?.defaultScopes || MOBILE_REMOTE_ACCESS_SCOPES;
+  const allowedScopes = profile?.allowedScopes || new Set(defaultScopes);
+  const requiredScopes = profile?.requiredScopes || [];
+  const raw = Array.isArray(value) && value.length > 0 ? value : defaultScopes;
   const validScopes = raw
-    .filter((scope) => typeof scope === "string" && ALLOWED_REMOTE_ACCESS_SCOPES.has(scope));
+    .filter((scope) => typeof scope === "string" && allowedScopes.has(scope));
   if (validScopes.length === 0) throw new Error("at least one supported scope is required");
   const scopeSet = new Set(validScopes);
-  scopeSet.add("resources.read");
-  return DEFAULT_REMOTE_ACCESS_SCOPES.filter((scope) => scopeSet.has(scope));
+  for (const scope of requiredScopes) scopeSet.add(scope);
+  return defaultScopes.filter((scope) => scopeSet.has(scope));
 }
 
 function sanitizeDevice(device) {

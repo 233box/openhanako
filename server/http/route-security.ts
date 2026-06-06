@@ -58,18 +58,8 @@ export function classifyHttpRoute({ method = "GET", path = "" } = {}) {
   ) {
     return verb === "GET" ? scoped("chat") : LOCAL_ONLY;
   }
-  if (routePath === "/api/mobile/workbench/files" || routePath === "/api/mobile/workbench/search") {
-    return verb === "GET" ? scoped("files.read") : LOCAL_ONLY;
-  }
-  if (routePath === "/api/mobile/workbench/content") {
-    return (verb === "GET" || verb === "HEAD") ? scoped("files.read") : LOCAL_ONLY;
-  }
-  if (
-    routePath === "/api/mobile/workbench/actions"
-    || routePath === "/api/mobile/workbench/upload"
-  ) {
-    return verb === "POST" ? scoped("files.write") : LOCAL_ONLY;
-  }
+  if (isWorkbenchFileReadRoute(verb, routePath)) return scoped("files.read");
+  if (isWorkbenchFileWriteRoute(verb, routePath)) return scoped("files.write");
   if (routePath === "/api/preferences/workspace-ui-state") {
     if (verb === "GET") return scoped("files.read");
     if (verb === "PUT") return scoped("files.write");
@@ -89,6 +79,8 @@ export function classifyHttpRoute({ method = "GET", path = "" } = {}) {
   }
   if (isSettingsReadRoute(verb, routePath)) return scoped("settings.read");
   if (isSettingsWriteRoute(verb, routePath)) return scoped("settings.write");
+  if (isMcpSettingsReadRoute(verb, routePath)) return scoped("settings.read");
+  if (isMcpSettingsWriteRoute(verb, routePath)) return scoped("settings.write");
   if (isProviderManagementRoute(verb, routePath)) return scoped("providers.manage");
   if (isBridgeManagementRoute(verb, routePath)) return scoped("bridge.manage");
   if (isPluginAssetReadRoute(verb, routePath)) return scoped("chat");
@@ -218,6 +210,8 @@ function isHtmlPreviewDocumentRoute(verb, routePath) {
 function isSettingsReadRoute(verb, routePath) {
   if (verb !== "GET") return false;
   return routePath === "/api/config"
+    || routePath === "/api/plugins/settings"
+    || routePath === "/api/plugins/settings-tabs"
     || routePath === "/api/providers/summary"
     || routePath === "/api/preferences/models"
     || routePath === "/api/preferences/appearance"
@@ -229,18 +223,42 @@ function isSettingsReadRoute(verb, routePath) {
     || /^\/api\/agents\/[^/]+\/config$/.test(routePath);
 }
 
+function isWorkbenchFileReadRoute(verb, routePath) {
+  if (verb !== "GET" && verb !== "HEAD") return false;
+  if (routePath === "/api/mobile/workbench/files" || routePath === "/api/mobile/workbench/search") {
+    return verb === "GET";
+  }
+  if (routePath === "/api/workbench/files" || routePath === "/api/workbench/search") {
+    return verb === "GET";
+  }
+  return routePath === "/api/mobile/workbench/content"
+    || routePath === "/api/workbench/content";
+}
+
+function isWorkbenchFileWriteRoute(verb, routePath) {
+  if (verb !== "POST") return false;
+  return routePath === "/api/mobile/workbench/actions"
+    || routePath === "/api/mobile/workbench/upload"
+    || routePath === "/api/workbench/actions"
+    || routePath === "/api/workbench/upload";
+}
+
 function isDeskFileReadRoute(verb, routePath) {
   if (verb !== "GET") return false;
   return routePath === "/api/desk/path"
     || routePath === "/api/desk/files"
     || routePath === "/api/desk/search-files"
-    || routePath === "/api/desk/jian";
+    || routePath === "/api/desk/jian"
+    || routePath === "/api/desk/beautify/status";
 }
 
 function isDeskFileWriteRoute(verb, routePath) {
   if (verb !== "POST") return false;
   return routePath === "/api/desk/files"
-    || routePath === "/api/desk/jian";
+    || routePath === "/api/desk/jian"
+    || routePath === "/api/desk/beautify/cover"
+    || routePath === "/api/desk/beautify/cover/apply"
+    || routePath === "/api/desk/beautify/cover/preset/apply";
 }
 
 function isSettingsWriteRoute(verb, routePath) {
@@ -278,6 +296,22 @@ function isBridgeManagementRoute(verb, routePath) {
     || routePath === "/api/bridge/owner"
     || routePath === "/api/bridge/stop"
     || routePath === "/api/bridge/test";
+}
+
+function isMcpSettingsReadRoute(verb, routePath) {
+  if (verb !== "GET") return false;
+  return routePath === "/api/plugins/mcp/state"
+    || /^\/api\/plugins\/mcp\/oauth\/poll\/[^/]+$/.test(routePath);
+}
+
+function isMcpSettingsWriteRoute(verb, routePath) {
+  if (verb === "PUT" && routePath === "/api/plugins/mcp/settings/enabled") return true;
+  if (verb === "POST" && routePath === "/api/plugins/mcp/connectors") return true;
+  if ((verb === "PUT" || verb === "DELETE") && /^\/api\/plugins\/mcp\/connectors\/[^/]+$/.test(routePath)) return true;
+  if (verb === "POST" && /^\/api\/plugins\/mcp\/connectors\/[^/]+\/(?:start|stop|refresh-tools)$/.test(routePath)) return true;
+  if (verb === "PUT" && /^\/api\/plugins\/mcp\/agents\/[^/]+\/connectors\/[^/]+$/.test(routePath)) return true;
+  if (verb === "POST" && /^\/api\/plugins\/mcp\/connectors\/[^/]+\/oauth\/(?:start|logout)$/.test(routePath)) return true;
+  return false;
 }
 
 function isPluginUiReadRoute(verb, routePath) {

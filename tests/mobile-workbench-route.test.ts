@@ -47,6 +47,52 @@ describe("mobile workbench route", () => {
     expect(JSON.stringify(data)).not.toContain(workspace);
   });
 
+  it("exposes the same server workbench through desktop-neutral aliases", async () => {
+    tmpDir = makeTmpDir();
+    const workspace = path.join(tmpDir, "workspace");
+    fs.mkdirSync(workspace, { recursive: true });
+    fs.writeFileSync(path.join(workspace, "note.md"), "old", "utf-8");
+    const app = await makeApp({
+      hanakoHome: path.join(tmpDir, "hana"),
+      deskCwd: workspace,
+      homeCwd: workspace,
+    });
+
+    const files = await app.request("/api/workbench/files");
+    expect(files.status).toBe(200);
+    expect(await files.json()).toMatchObject({
+      rootId: "default",
+      files: [{ name: "note.md", isDir: false }],
+    });
+
+    const content = await app.request("/api/workbench/content?name=note.md");
+    expect(content.status).toBe(200);
+    expect(await content.text()).toBe("old");
+
+    const write = await app.request("/api/workbench/actions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "writeText", name: "note.md", content: "new" }),
+    });
+    expect(write.status).toBe(200);
+    expect(await write.json()).toMatchObject({ ok: true, action: "writeText", rootId: "default" });
+    expect(fs.readFileSync(path.join(workspace, "note.md"), "utf-8")).toBe("new");
+
+    const upload = await app.request("/api/workbench/upload", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        files: [{ name: "asset.txt", contentBase64: Buffer.from("uploaded").toString("base64") }],
+      }),
+    });
+    expect(upload.status).toBe(200);
+    expect(await upload.json()).toMatchObject({
+      ok: true,
+      results: [{ name: "asset.txt", ok: true, size: Buffer.byteLength("uploaded") }],
+    });
+    expect(fs.readFileSync(path.join(workspace, "asset.txt"), "utf-8")).toBe("uploaded");
+  });
+
   it("returns mobile bootstrap metadata for desktop-compatible agent workbench selection", async () => {
     tmpDir = makeTmpDir();
     const workspace = path.join(tmpDir, "workspace");
