@@ -2017,7 +2017,7 @@
       "title": "背景動態"
     },
     "todo": {
-      "title": "待辦",
+      "title": "進程",
       "waitForOutput": "輸出完成後再標記"
     },
     "subagent": {

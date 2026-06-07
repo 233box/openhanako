@@ -57,6 +57,12 @@
 
 .row[data-status="in_progress"] .icon {
     color: var(--accent);
+    display: flex;
+    align-items: center;
+}
+
+.inProgressIcon {
+    flex: 0 0 auto;
 }
 
 .row[data-status="in_progress"] .text {

@@ -2226,7 +2226,7 @@
       "title": "后台动态"
     },
     "todo": {
-      "title": "待办",
+      "title": "进程",
       "waitForOutput": "输出完成后再标记"
     },
     "subagent": {

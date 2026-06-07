@@ -1,5 +1,5 @@
 /**
- * SessionTodoCard — 右侧「待办」卡（最高优先级，置顶任务区）
+ * SessionTodoCard — 右侧「进程」卡（最高优先级，置顶任务区）
  *
  * 展示当前对话的 keyed todos。无 todo / 无对话时返回 null。
  */
@@ -11,11 +11,18 @@ import styles from './SessionTodoCard.module.css';
 
 const EMPTY_TODOS: TodoItem[] = [];
 
-const STATUS_ICON: Record<TodoStatus, string> = {
+const STATUS_TEXT: Partial<Record<TodoStatus, string>> = {
   pending: '○',
-  in_progress: '⟳',
   completed: '✓',
 };
+
+function InProgressIcon() {
+  return (
+    <svg className={styles.inProgressIcon} width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M21 3v5m0 0h-5m5 0-3-2.708A9 9 0 1 0 20.777 14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
 
 function displayText(todo: TodoItem): string {
   if (todo.status === 'in_progress' && todo.activeForm) return todo.activeForm;
@@ -72,7 +79,9 @@ export function SessionTodoCard() {
       <div className={styles.list}>
         {todos.map((td, i) => (
           <div key={`todo-${i}`} className={styles.row} data-status={td.status}>
-            <span className={styles.icon} aria-hidden="true">{STATUS_ICON[td.status]}</span>
+            <span className={styles.icon} aria-hidden="true">
+              {td.status === 'in_progress' ? <InProgressIcon /> : STATUS_TEXT[td.status]}
+            </span>
             <span className={styles.text}>{displayText(td)}</span>
           </div>
         ))}
