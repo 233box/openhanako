@@ -183,14 +183,17 @@ describe("session permission wrapper", () => {
 
   it("auto mode lets automation draft generation run without a tool-action confirmation", async () => {
     const store = makeAutomationStore();
-    const confirmStore = {
-      create: vi.fn((kind) => ({
-        confirmId: `confirm-${kind}`,
-        promise: Promise.resolve({ action: "pending" }),
+    const confirmStore = { create: vi.fn() };
+    const automationSuggestionStore = {
+      create: vi.fn((entry) => ({
+        ...entry,
+        suggestionId: "automation_suggestion_1",
+        shortCode: "3827",
       })),
     };
     const tool = createAutomationTool(store, {
       confirmStore,
+      automationSuggestionStore,
       getAgentId: () => "agent-a",
       getSessionCwd: () => "/workspace/current",
       getSessionWorkspaceFolders: () => [],
@@ -216,11 +219,18 @@ describe("session permission wrapper", () => {
       ctx,
     );
 
-    expect(confirmStore.create.mock.calls.map(([kind]) => kind)).toEqual(["cron"]);
+    expect(confirmStore.create).not.toHaveBeenCalled();
+    expect(automationSuggestionStore.create).toHaveBeenCalledWith(expect.objectContaining({
+      sessionPath: "/tmp/session.jsonl",
+      operation: "create",
+      apply: expect.any(Function),
+    }));
     expect(result.details).toMatchObject({
       action: "pending_add",
-      confirmId: "confirm-cron",
+      suggestionId: "automation_suggestion_1",
+      suggestionShortCode: "3827",
     });
+    expect(result.details.confirmId).toBeUndefined();
     expect(store.addJob).not.toHaveBeenCalled();
   });
 

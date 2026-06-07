@@ -984,6 +984,7 @@ export class AgentManager {
     ag.setCallbacks({
       emitDevLog:           (text, level) => getEngine()?.emitDevLog?.(text, level),
       getConfirmStore:      () => getEngine()?.confirmStore ?? null,
+      getAutomationSuggestionStore: () => getEngine()?.automationSuggestionStore ?? null,
       getApprovalGateway:   () => getEngine()?.approvalGateway ?? null,
       getCurrentSessionPath:() => getEngine()?.currentSessionPath ?? null,
       getSessionPermissionMode: (sp) => getEngine()?.getSessionPermissionMode?.(sp) ?? null,

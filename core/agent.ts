@@ -448,6 +448,7 @@ export class Agent {
       getAutoApprove: () => false,
       confirmStore: this._cb?.getConfirmStore?.(),
       getConfirmStore: () => this._cb?.getConfirmStore?.(),
+      getAutomationSuggestionStore: () => this._cb?.getAutomationSuggestionStore?.(),
       emitEvent: (event, sp) => { if (sp) this._cb?.emitEvent?.(event, sp); },
       getSessionPath: () => this._cb?.getCurrentSessionPath?.(),
       getAgentId: () => this.id,

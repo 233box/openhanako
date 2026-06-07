@@ -1165,6 +1165,7 @@ describe("SessionCoordinator", () => {
       },
     }));
     coordinator._sessions = new Map();
+    coordinator._hibernatedSessionMeta = new Map();
     coordinator._prePromptAbortControllers = new Map();
     coordinator._currentSessionPath = null;
     coordinator._sessionStarted = false;

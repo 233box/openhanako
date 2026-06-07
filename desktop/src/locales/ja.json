@@ -1957,6 +1957,7 @@
     "draftTitle": "自動化ドラフト",
     "suggestionTitle": "提案",
     "suggested": "提案",
+    "viewSuggestion": "提案を見る",
     "openDraft": "自動化ドラフトを開く",
     "closeDraft": "自動化ドラフトを閉じる",
     "confirmCreate": "追加を確認",

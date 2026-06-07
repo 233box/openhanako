@@ -473,7 +473,7 @@ describe('cron', () => {
     expect(result[0].type).toBe('suggestion_card');
     expect(result[0].status).toBe('approved');
     expect(result[0].detail.jobData).toBe(jobData);
-    expect(result[0].confirmId).toBe('');
+    expect(result[0].confirmId).toBeUndefined();
     expect(result[0].kind).toBe('automation_draft');
   });
 
@@ -487,7 +487,7 @@ describe('cron', () => {
     expect(result[0].status).toBe('rejected');
   });
 
-  it('pending add keeps confirmId for non-blocking confirmation cards', () => {
+  it('pending add preserves legacy confirmId for old cron confirmation cards', () => {
     const result = extractor({ action: 'pending_add', jobData, confirmId: 'confirm_async' });
     expect(result[0].status).toBe('pending');
     expect(result[0].confirmId).toBe('confirm_async');
@@ -505,24 +505,42 @@ describe('automation', () => {
   const jobData = { type: 'cron', schedule: '0 12 * * *', label: 'Tea', prompt: 'notify' };
 
   it('pending add with jobData returns an automation suggestion card', () => {
-    const result = extractor({ action: 'pending_add', jobData, confirmId: 'confirm_auto' });
+    const result = extractor({
+      action: 'pending_add',
+      jobData,
+      suggestionId: 'automation_suggestion_1',
+      suggestionShortCode: '3827',
+    });
     expect(result).toHaveLength(1);
     expect(result[0].type).toBe('suggestion_card');
     expect(result[0].kind).toBe('automation_draft');
     expect(result[0].operation).toBe('create');
     expect(result[0].status).toBe('pending');
-    expect(result[0].confirmId).toBe('confirm_auto');
+    expect(result[0].suggestionId).toBe('automation_suggestion_1');
+    expect(result[0].suggestionShortCode).toBe('3827');
+    expect(result[0].confirmId).toBeUndefined();
     expect(result[0].detail.jobData).toBe(jobData);
+    expect(result[0].actions).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'reject' }),
+    ]));
   });
 
   it('pending update with jobData returns an update automation suggestion card', () => {
-    const result = extractor({ action: 'pending_update', operation: 'update', jobData: { ...jobData, id: 'job_1' }, confirmId: 'confirm_update' });
+    const result = extractor({
+      action: 'pending_update',
+      operation: 'update',
+      jobData: { ...jobData, id: 'job_1' },
+      suggestionId: 'automation_suggestion_update',
+      suggestionShortCode: '7008',
+    });
     expect(result).toHaveLength(1);
     expect(result[0].type).toBe('suggestion_card');
     expect(result[0].kind).toBe('automation_draft');
     expect(result[0].operation).toBe('update');
     expect(result[0].status).toBe('pending');
-    expect(result[0].confirmId).toBe('confirm_update');
+    expect(result[0].suggestionId).toBe('automation_suggestion_update');
+    expect(result[0].suggestionShortCode).toBe('7008');
+    expect(result[0].confirmId).toBeUndefined();
     expect(result[0].detail.operation).toBe('update');
   });
 

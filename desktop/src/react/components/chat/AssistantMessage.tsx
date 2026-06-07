@@ -867,21 +867,7 @@ const CronConfirmBlock = memo(function CronConfirmBlock({ block, sessionPath }: 
     try {
       const editedJobData = buildDraftJobData();
       if (isSuggestionCard) {
-        let createdByConfirm = false;
-        if (block.confirmId && status === 'pending') {
-          const res = await hanaFetch(`/api/confirm/${block.confirmId}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'confirmed', value: { jobData: editedJobData } }),
-            throwOnHttpError: false,
-          });
-          if (res.ok) {
-            createdByConfirm = true;
-          } else if (res.status !== 404) {
-            throw new Error(`confirm failed: ${res.status}`);
-          }
-        }
-        if (!createdByConfirm) await submitDraftJob(editedJobData);
+        await submitDraftJob(editedJobData);
       } else if (block.confirmId) {
         await hanaFetch(`/api/confirm/${block.confirmId}`, {
           method: 'POST',
@@ -898,17 +884,6 @@ const CronConfirmBlock = memo(function CronConfirmBlock({ block, sessionPath }: 
 
   const handleReject = async () => {
     if (isSuggestionCard) {
-      if (block.confirmId && status === 'pending') {
-        try {
-          await hanaFetch(`/api/confirm/${block.confirmId}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'rejected' }),
-            throwOnHttpError: false,
-          });
-        } catch { /* silent */ }
-      }
-      setStatus('rejected');
       setModalOpen(false);
       return;
     }
@@ -929,7 +904,8 @@ const CronConfirmBlock = memo(function CronConfirmBlock({ block, sessionPath }: 
     <ChatResourceCard
       icon={<AutomationDraftIcon />}
       title={label || window.t('automation.draftTitle')}
-      titleMeta={isSuggestionCard || pending ? window.t('automation.suggested') : undefined}
+      titleMeta={!isSuggestionCard && pending ? window.t('automation.suggested') : undefined}
+      titleTail={isSuggestionCard ? window.t('automation.viewSuggestion') : undefined}
       subtitle={`${agentInfo.displayName} · ${schedulePreview}`}
       statusLabel={!isSuggestionCard && !pending ? (status === 'approved' ? window.t('common.approved') : window.t('common.rejected')) : undefined}
       statusTone={!isSuggestionCard && !pending ? (status === 'approved' ? 'success' : 'muted') : 'accent'}
