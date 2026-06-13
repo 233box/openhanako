@@ -606,6 +606,7 @@ export function createQQAdapter({ appID, appSecret, agentId, onMessage, dmGuildM
 
   return {
     mediaCapabilities: QQ_MEDIA_CAPABILITIES,
+    streamingCapabilities: { mode: "block", scopes: ["dm"] },
 
     async sendReply(chatId, text, replyContext = null) {
       const context = normalizeQQReplyContext(replyContext);
