@@ -17,7 +17,7 @@ export const ThinkingBlock = memo(function ThinkingBlock({ content, sealed }: Pr
   const toggle = useCallback(() => setOpen(v => !v), []);
 
   return (
-    <details className={styles.thinkingBlock} open={open} onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}>
+    <details className={styles.thinkingBlock} open={true} onToggle={(e) => { e.preventDefault(); }}>
       <summary className={styles.thinkingBlockSummary} onClick={(e) => { e.preventDefault(); toggle(); }}>
         <span className={`${styles.thinkingBlockArrow}${open ? ` ${styles.thinkingBlockArrowOpen}` : ''}`}>›</span>
         {' '}{sealed ? t('thinking.done') : (

@@ -446,6 +446,7 @@ let reusedServerPid = null; // 复用已有 server 时记录其 PID，用 owner 
 let reusedServerOwned = false; // 仅 desktop-owned 的复用 server 才由 desktop 退出时关闭
 let isExitingServer = false; // 只有托盘"退出"时才 kill server，其余路径仅关前端
 let _isUpdating = false;  // auto-updater 正在执行 quitAndInstall，before-quit 跳过 server 清理
+function _closeAllHtmlPreviewViews() { /* html preview views 清理占位，上游遗漏定义 */ }
 let _autoUpdaterInitialized = false;
 let forceQuitApp = false;   // 启动失败等场景需要真正退出，绕过"隐藏保持运行"拦截
 let _startHiddenAtLogin = false; // 登录项启动时不抢前台，只在托盘常驻
